@@ -27,4 +27,4 @@ minima:
 header_pages:
   - _pages/about.md
 
-show_excerpts: true
+# show_excerpts: true
