@@ -9,7 +9,6 @@ const navItems = [
   { href: "/categories", label: "Categories" },
   { href: "/translations", label: "Translations" },
   { href: "/about", label: "About" },
-  { href: "/graph", label: "Graph" },
 ];
 
 export default function Header() {

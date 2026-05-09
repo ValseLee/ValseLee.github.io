@@ -72,4 +72,8 @@ for (const relPath of searchableFiles) {
   assert(!forbidden.test(read(relPath)), `${relPath} contains old admin/Celan-Log coupling`);
 }
 
+
+const header = read("components/Header.tsx");
+assert(!header.includes('href: "/graph"'), "Header must not expose the inactive Graph page");
+
 console.log(`verified ${actualSlugs.length} translations and no admin coupling`);
