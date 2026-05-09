@@ -128,3 +128,24 @@ body {
   border-color: var(--border);
   margin: 2rem 0;
 }
+
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1.25rem;
+  display: block;
+  overflow-x: auto;
+}
+
+.prose th,
+.prose td {
+  border: 1px solid var(--border);
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.prose th {
+  color: var(--accent);
+  font-weight: 600;
+}
