@@ -1,0 +1,167 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+import {
+  buildCommitMessage,
+  buildMdxDocument,
+  createSlug,
+  listDrafts,
+  loadDraft,
+  parseCommaList,
+  parseDraftMdx,
+  resolveUniquePostFile,
+  saveDraft,
+} from "./article-dashboard.mjs";
+
+test("createSlug creates stable URL-safe slugs and keeps Korean text", () => {
+  assert.equal(createSlug("Hello, Celan's New Article!"), "hello-celans-new-article");
+  assert.equal(createSlug("독서와 AI 에이전트"), "독서와-ai-에이전트");
+  assert.match(createSlug("   "), /^post-\d{4}-\d{2}-\d{2}$/);
+});
+
+test("parseCommaList trims comma-separated values and drops blanks", () => {
+  assert.deepEqual(parseCommaList("Next.js,  MDX, , 블로그 "), ["Next.js", "MDX", "블로그"]);
+  assert.deepEqual(parseCommaList(""), []);
+});
+
+test("buildMdxDocument renders required frontmatter and markdown body", () => {
+  const mdx = buildMdxDocument({
+    title: "Quote: \"Hello\"",
+    date: "2026-05-14",
+    category: "engineering",
+    tags: ["Next.js", "MDX"],
+    links: [],
+    description: "Local dashboard draft",
+    body: "# Heading\n\n본문입니다.",
+  });
+
+  assert.match(mdx, /^---\n/);
+  assert.match(mdx, /title: "Quote: \\"Hello\\""/);
+  assert.match(mdx, /date: "2026-05-14"/);
+  assert.match(mdx, /category: "engineering"/);
+  assert.match(mdx, /tags: \["Next.js", "MDX"\]/);
+  assert.match(mdx, /links: \[\]/);
+  assert.match(mdx, /description: "Local dashboard draft"/);
+  assert.match(mdx, /---\n\n# Heading\n\n본문입니다\.\n$/);
+});
+
+test("buildCommitMessage follows the requested Celan article format", () => {
+  assert.equal(
+    buildCommitMessage("2026-05-14", "Local Dashboard"),
+    "2026-05-14 new article written by Celan - Local Dashboard",
+  );
+});
+
+test("resolveUniquePostFile appends numeric suffixes for duplicate slugs", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "article-dashboard-"));
+  fs.writeFileSync(path.join(dir, "hello-world.mdx"), "existing");
+  fs.writeFileSync(path.join(dir, "hello-world-2.mdx"), "existing");
+
+  const result = resolveUniquePostFile(dir, "hello-world");
+  assert.equal(result.slug, "hello-world-3");
+  assert.equal(result.filePath, path.join(dir, "hello-world-3.mdx"));
+});
+
+
+test("saveDraft writes an ignored local draft without committing", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "article-dashboard-root-"));
+  const result = saveDraft({
+    title: "Draft: Local Note",
+    date: "2026-05-14",
+    category: "life",
+    tags: "memo, local",
+    links: "",
+    description: "A local draft",
+    body: "# Draft\n\n임시저장 본문입니다.",
+  }, root, new Date("2026-05-14T00:00:00+09:00"));
+
+  assert.equal(result.ok, true);
+  assert.equal(result.slug, "draft-local-note");
+  assert.equal(result.filePath, path.join(".article-drafts", "draft-local-note.mdx"));
+  assert.equal(
+    fs.readFileSync(path.join(root, result.filePath), "utf8"),
+    buildMdxDocument({
+      title: "Draft: Local Note",
+      date: "2026-05-14",
+      category: "life",
+      tags: ["memo", "local"],
+      links: [],
+      description: "A local draft",
+      body: "# Draft\n\n임시저장 본문입니다.",
+    }),
+  );
+});
+
+
+test("parseDraftMdx restores dashboard form fields from a saved draft", () => {
+  const mdx = buildMdxDocument({
+    title: "다시 불러올 글",
+    date: "2026-05-18",
+    category: "founder-notes",
+    tags: ["draft", "local"],
+    links: ["hello-world"],
+    description: "불러오기 테스트",
+    body: "# Draft\n\n다시 이어 쓸 본문입니다.",
+  });
+
+  assert.deepEqual(parseDraftMdx(mdx), {
+    title: "다시 불러올 글",
+    date: "2026-05-18",
+    category: "founder-notes",
+    tags: "draft, local",
+    links: "hello-world",
+    description: "불러오기 테스트",
+    body: "# Draft\n\n다시 이어 쓸 본문입니다.",
+  });
+});
+
+test("listDrafts and loadDraft expose ignored local drafts for the dashboard", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "article-dashboard-drafts-"));
+  const first = saveDraft({
+    title: "First Draft",
+    date: "2026-05-17",
+    category: "build-log",
+    tags: "first",
+    links: "",
+    description: "첫 번째",
+    body: "# First\n\n본문",
+  }, root, new Date("2026-05-17T00:00:00+09:00"));
+  const second = saveDraft({
+    title: "Second Draft",
+    date: "2026-05-18",
+    category: "engineering",
+    tags: "second, test",
+    links: "first-draft",
+    description: "두 번째",
+    body: "# Second\n\n이어 쓰는 본문",
+  }, root, new Date("2026-05-18T00:00:00+09:00"));
+
+  fs.utimesSync(path.join(root, first.filePath), new Date("2026-05-17T00:00:00Z"), new Date("2026-05-17T00:00:00Z"));
+  fs.utimesSync(path.join(root, second.filePath), new Date("2026-05-18T00:00:00Z"), new Date("2026-05-18T00:00:00Z"));
+
+  const drafts = listDrafts(root);
+  assert.equal(drafts.length, 2);
+  assert.equal(drafts[0].fileName, "second-draft.mdx");
+  assert.equal(drafts[0].title, "Second Draft");
+  assert.equal(drafts[0].filePath, path.join(".article-drafts", "second-draft.mdx"));
+
+  assert.deepEqual(loadDraft("second-draft.mdx", root), {
+    ok: true,
+    fileName: "second-draft.mdx",
+    filePath: path.join(".article-drafts", "second-draft.mdx"),
+    article: {
+      title: "Second Draft",
+      date: "2026-05-18",
+      category: "engineering",
+      tags: "second, test",
+      links: "first-draft",
+      description: "두 번째",
+      body: "# Second\n\n이어 쓰는 본문",
+    },
+  });
+
+  assert.throws(() => loadDraft("../secret.mdx", root), /선택/);
+});

@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "verify:content": "node scripts/verify-content.mjs"
+    "verify:content": "node scripts/verify-content.mjs",
+    "write": "node scripts/article-dashboard.mjs",
+    "test:article-dashboard": "node --test scripts/article-dashboard.test.mjs"
   },
   "dependencies": {
     "@mdx-js/loader": "^3.1.1",
