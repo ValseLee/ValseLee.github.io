@@ -9,7 +9,7 @@ export default function Home() {
       <section className="mb-16">
         <h1 className="font-serif text-5xl font-semibold mb-6">Thoughts</h1>
         <p className="text-subtext text-lg leading-relaxed max-w-xl">
-          기술과 일상에 대한 생각을 기록합니다.
+          빌드 로그, 창업자 노트, 엔지니어링과 일상에 대한 생각을 기록합니다.
         </p>
       </section>
 

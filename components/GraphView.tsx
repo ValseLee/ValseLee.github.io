@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import ForceGraph2D, { ForceGraphMethods } from "react-force-graph-2d";
+import { POST_CATEGORIES } from "@/lib/categories";
 
 interface GraphNode {
   id: string;
@@ -23,6 +24,10 @@ interface GraphData {
 interface GraphViewProps {
   data: GraphData;
 }
+
+const categoryColors = Object.fromEntries(
+  POST_CATEGORIES.map((category) => [category.id, category.graphColor])
+);
 
 export default function GraphView({ data }: GraphViewProps) {
   const router = useRouter();
@@ -55,7 +60,7 @@ export default function GraphView({ data }: GraphViewProps) {
       if (hoveredNode === node.id) {
         return "#FFFFFF";
       }
-      return node.category === "tech" ? "#888888" : "#CCCCCC";
+      return categoryColors[node.category] ?? "#CCCCCC";
     },
     [hoveredNode]
   );

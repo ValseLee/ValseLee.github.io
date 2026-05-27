@@ -1,14 +1,12 @@
 import Link from "next/link";
+import { POST_CATEGORIES } from "@/lib/categories";
 import { getPostsByCategory } from "@/lib/posts";
 
 export default function CategoriesPage() {
-  const techPosts = getPostsByCategory("tech");
-  const lifePosts = getPostsByCategory("life");
-
-  const categories = [
-    { id: "tech", label: "Tech", description: "기술에 대한 글", posts: techPosts },
-    { id: "life", label: "Life", description: "일상에 대한 글", posts: lifePosts },
-  ];
+  const categories = POST_CATEGORIES.map((category) => ({
+    ...category,
+    posts: getPostsByCategory(category.id),
+  }));
 
   return (
     <div className="py-12">

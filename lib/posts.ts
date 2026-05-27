@@ -1,13 +1,15 @@
 import fs from "fs";
 import path from "path";
 import matter from "gray-matter";
+import { type PostCategory } from "@/lib/categories";
+export { POST_CATEGORIES, type PostCategory } from "@/lib/categories";
 
 const postsDirectory = path.join(process.cwd(), "content/posts");
 
 export interface PostFrontmatter {
   title: string;
   date: string;
-  category: "tech" | "life";
+  category: PostCategory;
   tags: string[];
   links: string[];
   description: string;
@@ -68,7 +70,7 @@ export function getAllSlugs(): string[] {
     .map((fileName) => fileName.replace(/\.mdx$/, ""));
 }
 
-export function getPostsByCategory(category: "tech" | "life"): PostMeta[] {
+export function getPostsByCategory(category: PostCategory): PostMeta[] {
   return getAllPosts().filter((post) => post.frontmatter.category === category);
 }
 
