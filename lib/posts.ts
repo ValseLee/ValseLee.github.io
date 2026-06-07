@@ -49,12 +49,13 @@ export function getAllPosts(): PostMeta[] {
 
 export function getPostBySlug(slug: string): Post | null {
   try {
-    const fullPath = path.join(postsDirectory, `${slug}.mdx`);
+    const decodedSlug = decodeURIComponent(slug);
+    const fullPath = path.join(postsDirectory, `${decodedSlug}.mdx`);
     const fileContents = fs.readFileSync(fullPath, "utf8");
     const { data, content } = matter(fileContents);
 
     return {
-      slug,
+      slug: decodedSlug,
       frontmatter: data as PostFrontmatter,
       content,
     };
