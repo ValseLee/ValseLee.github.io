@@ -12,6 +12,7 @@ import {
   loadDraft,
   parseCommaList,
   parseDraftMdx,
+  publishPost,
   resolveUniquePostFile,
   saveDraft,
 } from "./article-dashboard.mjs";
@@ -163,5 +164,48 @@ test("listDrafts and loadDraft expose ignored local drafts for the dashboard", (
     },
   });
 
+  fs.mkdirSync(path.join(root, "content", "posts"), { recursive: true });
+  fs.writeFileSync(path.join(root, "content", "posts", "second-draft.mdx"), "published", "utf8");
+  assert.equal(
+    loadDraft("second-draft.mdx", root).article.sourcePath,
+    path.join("content", "posts", "second-draft.mdx"),
+  );
+
   assert.throws(() => loadDraft("../secret.mdx", root), /선택/);
+});
+
+test("publishPost updates the loaded source post instead of creating a duplicate", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "article-dashboard-publish-"));
+  const postsDirectory = path.join(root, "content", "posts");
+  fs.mkdirSync(postsDirectory, { recursive: true });
+  const existingPath = path.join(postsDirectory, "architecture-guidance-and-the-rules-1.mdx");
+  fs.writeFileSync(existingPath, "old article", "utf8");
+  const calls = [];
+
+  const result = await publishPost({
+    title: "Architecture, Guidance, and the Rules (1)",
+    date: "2026-06-09",
+    category: "engineering",
+    tags: "AI-Harness, Architecture",
+    links: "",
+    description: "업데이트 테스트",
+    body: "# Updated\n\n기존 글을 업데이트합니다.",
+    sourcePath: path.join("content", "posts", "architecture-guidance-and-the-rules-1.mdx"),
+  }, root, new Date("2026-06-09T00:00:00+09:00"), async (command, args, cwd) => {
+    calls.push({ command, args, cwd });
+    return `$ ${command} ${args.join(" ")}`;
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.slug, "architecture-guidance-and-the-rules-1");
+  assert.equal(result.filePath, path.join("content", "posts", "architecture-guidance-and-the-rules-1.mdx"));
+  assert.equal(fs.existsSync(path.join(postsDirectory, "architecture-guidance-and-the-rules-1-2.mdx")), false);
+  assert.match(fs.readFileSync(existingPath, "utf8"), /# Updated/);
+  assert.deepEqual(calls.map((call) => [call.command, call.args]), [
+    ["npm", ["run", "verify:content"]],
+    ["npm", ["run", "build"]],
+    ["git", ["add", "--", path.join("content", "posts", "architecture-guidance-and-the-rules-1.mdx")]],
+    ["git", ["commit", "-m", "2026-06-09 new article written by Celan - Architecture, Guidance, and the Rules (1)"]],
+    ["git", ["push"]],
+  ]);
 });

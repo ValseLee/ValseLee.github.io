@@ -239,22 +239,45 @@ export function loadDraft(fileName, root = process.cwd()) {
   const safeFileName = normalizeDraftFileName(fileName);
   const filePath = path.join(getDraftsDirectory(root), safeFileName);
   if (!fs.existsSync(filePath)) throw new Error("임시저장 파일을 찾을 수 없습니다.");
+  const sourcePath = path.join("content", "posts", safeFileName);
+  const sourceFilePath = path.join(root, sourcePath);
+  const article = parseDraftMdx(fs.readFileSync(filePath, "utf8"));
+  if (fs.existsSync(sourceFilePath)) article.sourcePath = sourcePath;
 
   return {
     ok: true,
     fileName: safeFileName,
     filePath: path.relative(root, filePath),
-    article: parseDraftMdx(fs.readFileSync(filePath, "utf8")),
+    article,
   };
 }
 
-async function publishPost(rawInput, root = process.cwd(), now = new Date()) {
+function normalizeSourcePath(sourcePath, root) {
+  const value = String(sourcePath ?? "").trim();
+  if (!value) return "";
+
+  const normalized = path.normalize(value);
+  const postsPrefix = `content${path.sep}posts${path.sep}`;
+  if (path.isAbsolute(normalized) || normalized.startsWith("..") || !normalized.startsWith(postsPrefix) || !normalized.endsWith(".mdx")) {
+    throw new Error("업데이트 대상 글 경로가 올바르지 않습니다.");
+  }
+
+  const absolutePath = path.join(root, normalized);
+  if (!fs.existsSync(absolutePath)) throw new Error("업데이트 대상 글을 찾을 수 없습니다.");
+  return normalized;
+}
+
+export async function publishPost(rawInput, root = process.cwd(), now = new Date(), runner = runCommand) {
   const article = normalizeArticleInput(rawInput, now);
   const postsDirectory = path.join(root, "content", "posts");
   fs.mkdirSync(postsDirectory, { recursive: true });
 
   const requestedSlug = createSlug(article.title, now);
-  const { slug, filePath } = resolveUniquePostFile(postsDirectory, requestedSlug);
+  const sourcePath = normalizeSourcePath(rawInput.sourcePath, root);
+  const target = sourcePath
+    ? { slug: path.basename(sourcePath, ".mdx"), filePath: path.join(root, sourcePath), created: false }
+    : { ...resolveUniquePostFile(postsDirectory, requestedSlug), created: true };
+  const { slug, filePath } = target;
   const relativePath = path.relative(root, filePath);
   const mdx = buildMdxDocument(article);
   const commitMessage = buildCommitMessage(article.date, article.title);
@@ -271,21 +294,23 @@ async function publishPost(rawInput, root = process.cwd(), now = new Date()) {
       ["git", ["commit", "-m", commitMessage]],
       ["git", ["push"]],
     ]) {
-      const output = await runCommand(command, args, root);
+      const output = await runner(command, args, root);
       logs.push(output);
       if (command === "git" && args[0] === "commit") committed = true;
     }
   } catch (error) {
     if (!committed) {
       try {
-        await runCommand("git", ["restore", "--staged", "--", relativePath], root);
+        await runner("git", ["restore", "--staged", "--", relativePath], root);
       } catch {
         // The path may not have been staged yet.
       }
-      try {
-        fs.unlinkSync(filePath);
-      } catch {
-        // If cleanup fails, surface the original command error.
+      if (target.created) {
+        try {
+          fs.unlinkSync(filePath);
+        } catch {
+          // If cleanup fails, surface the original command error.
+        }
       }
     }
 
@@ -299,7 +324,9 @@ async function publishPost(rawInput, root = process.cwd(), now = new Date()) {
         commitMessage,
         error: committed
           ? "커밋은 생성됐지만 push가 실패했습니다. 로그를 확인해 주세요."
-          : "저장/검증/커밋 중 실패했습니다. 새 글 파일은 정리했습니다.",
+          : target.created
+            ? "저장/검증/커밋 중 실패했습니다. 새 글 파일은 정리했습니다."
+            : "저장/검증/커밋 중 실패했습니다. 업데이트한 글 파일을 확인해 주세요.",
         logs,
       };
     }
@@ -465,6 +492,7 @@ function renderDashboard(root) {
     const button = document.querySelector("#publish");
     const log = document.querySelector("#log");
     const logContent = document.querySelector("#log-content");
+    let currentSourcePath = "";
 
     function escapeHtml(value) {
       const entities = { "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" };
@@ -524,10 +552,12 @@ function renderDashboard(root) {
         tags: tags.value,
         links: links.value,
         body: body.value,
+        sourcePath: currentSourcePath,
       };
     }
 
     function fillForm(article) {
+      currentSourcePath = article.sourcePath || "";
       title.value = article.title || "";
       date.value = article.date || date.value;
       category.value = article.category || category.value;
