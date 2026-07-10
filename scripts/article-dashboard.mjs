@@ -9,6 +9,16 @@ const DEFAULT_PORT = 4317;
 const CATEGORIES = ["build-log", "founder-notes", "engineering", "life"];
 const DEFAULT_CATEGORY = "build-log";
 const VALID_CATEGORIES = new Set(CATEGORIES);
+const IMAGE_TYPES = new Map([
+  [".png", "image/png"],
+  [".jpg", "image/jpeg"],
+  [".jpeg", "image/jpeg"],
+  [".gif", "image/gif"],
+  [".webp", "image/webp"],
+  [".avif", "image/avif"],
+  [".svg", "image/svg+xml"],
+]);
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 function todayString(date = new Date()) {
   const year = date.getFullYear();
@@ -73,6 +83,43 @@ export function resolveUniquePostFile(postsDirectory, requestedSlug) {
   }
 
   return { slug, filePath };
+}
+
+export function resolveUniqueImageFile(imagesDirectory, requestedName) {
+  const extension = path.extname(requestedName);
+  const baseName = path.basename(requestedName, extension);
+  let fileName = requestedName;
+  let index = 2;
+
+  while (fs.existsSync(path.join(imagesDirectory, fileName))) {
+    fileName = `${baseName}-${index}${extension}`;
+    index += 1;
+  }
+
+  return { fileName, filePath: path.join(imagesDirectory, fileName) };
+}
+
+export function saveUploadedImage({ fileName, contentType, content }, root = process.cwd()) {
+  const baseName = path.basename(String(fileName ?? ""));
+  const originalExtension = path.extname(baseName);
+  const extension = originalExtension.toLowerCase();
+
+  if (IMAGE_TYPES.get(extension) !== contentType || !Buffer.isBuffer(content) || !content.length || content.length > MAX_IMAGE_BYTES) {
+    throw new Error("이미지 파일 형식 또는 크기가 올바르지 않습니다.");
+  }
+
+  const imagesDirectory = path.join(root, "public", "images");
+  const requestedName = `${createSlug(path.basename(baseName, originalExtension))}${extension}`;
+  fs.mkdirSync(imagesDirectory, { recursive: true });
+  const target = resolveUniqueImageFile(imagesDirectory, requestedName);
+  fs.writeFileSync(target.filePath, content);
+
+  return {
+    ok: true,
+    fileName: target.fileName,
+    filePath: path.join("public", "images", target.fileName),
+    publicPath: `/images/${target.fileName}`,
+  };
 }
 
 export function buildCommitMessage(date, title) {

@@ -15,6 +15,7 @@ import {
   publishPost,
   resolveUniquePostFile,
   saveDraft,
+  saveUploadedImage,
 } from "./article-dashboard.mjs";
 
 test("createSlug creates stable URL-safe slugs and keeps Korean text", () => {
@@ -64,6 +65,40 @@ test("resolveUniquePostFile appends numeric suffixes for duplicate slugs", () =>
   const result = resolveUniquePostFile(dir, "hello-world");
   assert.equal(result.slug, "hello-world-3");
   assert.equal(result.filePath, path.join(dir, "hello-world-3.mdx"));
+});
+
+test("saveUploadedImage writes an allowed image with a public path", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "article-dashboard-image-"));
+  const result = saveUploadedImage({
+    fileName: "A cat photo.PNG",
+    contentType: "image/png",
+    content: Buffer.from("png"),
+  }, root);
+
+  assert.deepEqual(result, {
+    ok: true,
+    fileName: "a-cat-photo.png",
+    filePath: path.join("public", "images", "a-cat-photo.png"),
+    publicPath: "/images/a-cat-photo.png",
+  });
+  assert.equal(fs.readFileSync(path.join(root, result.filePath), "utf8"), "png");
+});
+
+test("saveUploadedImage suffixes duplicate image names", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "article-dashboard-image-"));
+  saveUploadedImage({ fileName: "cat.png", contentType: "image/png", content: Buffer.from("one") }, root);
+
+  assert.equal(
+    saveUploadedImage({ fileName: "cat.png", contentType: "image/png", content: Buffer.from("two") }, root).fileName,
+    "cat-2.png",
+  );
+});
+
+test("saveUploadedImage rejects mismatched image uploads", () => {
+  assert.throws(
+    () => saveUploadedImage({ fileName: "script.svg", contentType: "image/png", content: Buffer.from("x") }),
+    /이미지 파일 형식/,
+  );
 });
 
 
