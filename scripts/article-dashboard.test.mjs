@@ -269,3 +269,31 @@ test("publishPost updates the loaded source post instead of creating a duplicate
     ["git", ["push"]],
   ]);
 });
+
+test("publishPost stages image assets referenced by the article body", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "article-dashboard-publish-image-"));
+  const imagesDirectory = path.join(root, "public", "images");
+  fs.mkdirSync(imagesDirectory, { recursive: true });
+  fs.writeFileSync(path.join(imagesDirectory, "drop.png"), "png", "utf8");
+  const calls = [];
+
+  await publishPost({
+    title: "Post with an image",
+    date: "2026-07-10",
+    category: "engineering",
+    tags: "",
+    links: "",
+    description: "이미지 stage 테스트",
+    body: "본문\n\n![drop](/images/drop.png)",
+  }, root, new Date("2026-07-10T00:00:00+09:00"), async (command, args, cwd) => {
+    calls.push({ command, args, cwd });
+    return `$ ${command} ${args.join(" ")}`;
+  });
+
+  assert.deepEqual(calls.find((call) => call.command === "git" && call.args[0] === "add").args, [
+    "add",
+    "--",
+    path.join("content", "posts", "post-with-an-image.mdx"),
+    path.join("public", "images", "drop.png"),
+  ]);
+});

@@ -314,6 +314,26 @@ function normalizeSourcePath(sourcePath, root) {
   return normalized;
 }
 
+function referencedImagePaths(body, root) {
+  const paths = new Set();
+  const imagePattern = /!\[[^\]]*\]\(\/images\/([^\s)]+)\)/g;
+
+  for (const match of String(body ?? "").matchAll(imagePattern)) {
+    let fileName;
+    try {
+      fileName = decodeURIComponent(match[1]);
+    } catch {
+      continue;
+    }
+
+    if (path.basename(fileName) !== fileName || !IMAGE_TYPES.has(path.extname(fileName).toLowerCase())) continue;
+    const relativePath = path.join("public", "images", fileName);
+    if (fs.existsSync(path.join(root, relativePath))) paths.add(relativePath);
+  }
+
+  return [...paths];
+}
+
 export async function publishPost(rawInput, root = process.cwd(), now = new Date(), runner = runCommand) {
   const article = normalizeArticleInput(rawInput, now);
   const postsDirectory = path.join(root, "content", "posts");
@@ -326,6 +346,7 @@ export async function publishPost(rawInput, root = process.cwd(), now = new Date
     : { ...resolveUniquePostFile(postsDirectory, requestedSlug), created: true };
   const { slug, filePath } = target;
   const relativePath = path.relative(root, filePath);
+  const stagedPaths = [relativePath, ...referencedImagePaths(article.body, root)];
   const mdx = buildMdxDocument(article);
   const commitMessage = buildCommitMessage(article.date, article.title);
   const logs = [];
@@ -337,7 +358,7 @@ export async function publishPost(rawInput, root = process.cwd(), now = new Date
     for (const [command, args] of [
       ["npm", ["run", "verify:content"]],
       ["npm", ["run", "build"]],
-      ["git", ["add", "--", relativePath]],
+      ["git", ["add", "--", ...stagedPaths]],
       ["git", ["commit", "-m", commitMessage]],
       ["git", ["push"]],
     ]) {
@@ -348,7 +369,7 @@ export async function publishPost(rawInput, root = process.cwd(), now = new Date
   } catch (error) {
     if (!committed) {
       try {
-        await runner("git", ["restore", "--staged", "--", relativePath], root);
+        await runner("git", ["restore", "--staged", "--", ...stagedPaths], root);
       } catch {
         // The path may not have been staged yet.
       }
