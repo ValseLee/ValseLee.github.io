@@ -676,6 +676,53 @@ function renderDashboard(root) {
 
     refreshDrafts();
 
+    function insertImageAtSelection(fileName, publicPath, start, end) {
+      const alt = fileName.replaceAll("[", "").replaceAll("]", "");
+      body.setRangeText("![" + alt + "](" + publicPath + ")", start, end, "end");
+      body.focus();
+      updatePreview();
+    }
+
+    async function uploadDroppedImage(file, start, end) {
+      const response = await fetch("/api/images", {
+        method: "POST",
+        headers: { "content-type": file.type, "x-file-name": encodeURIComponent(file.name) },
+        body: file,
+      });
+      const result = await response.json();
+      if (!result.ok) throw new Error(result.error || "이미지를 저장하지 못했습니다.");
+      insertImageAtSelection(file.name, result.publicPath, start, end);
+      status.className = "status ok";
+      status.textContent = "이미지 추가: " + result.publicPath;
+    }
+
+    body.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+    });
+
+    body.addEventListener("drop", async (event) => {
+      event.preventDefault();
+      const files = event.dataTransfer.files;
+      if (files.length !== 1) {
+        status.className = "status error";
+        status.textContent = "이미지 파일 하나만 drop해 주세요.";
+        return;
+      }
+
+      const start = body.selectionStart;
+      const end = body.selectionEnd;
+      status.className = "status";
+      status.textContent = "이미지를 저장하는 중입니다...";
+
+      try {
+        await uploadDroppedImage(files[0], start, end);
+      } catch (error) {
+        status.className = "status error";
+        status.textContent = error.message;
+      }
+    });
+
     draftButton.addEventListener("click", async () => {
       draftButton.disabled = true;
       status.className = "status";
