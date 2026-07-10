@@ -749,12 +749,25 @@ async function readJsonBody(request) {
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
+async function readImageBody(request) {
+  const chunks = [];
+  let size = 0;
+
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > MAX_IMAGE_BYTES) throw new Error("이미지 파일은 10MB 이하여야 합니다.");
+    chunks.push(chunk);
+  }
+
+  return Buffer.concat(chunks);
+}
+
 function sendJson(response, statusCode, data) {
   response.writeHead(statusCode, { "content-type": "application/json; charset=utf-8" });
   response.end(JSON.stringify(data, null, 2));
 }
 
-function createServer(root) {
+export function createServer(root) {
   return http.createServer(async (request, response) => {
     const url = new URL(request.url ?? "/", `http://${HOST}`);
 
@@ -775,6 +788,20 @@ function createServer(root) {
         sendJson(response, 200, { ok: true, drafts: listDrafts(root) });
       } catch (error) {
         sendJson(response, 500, { ok: false, error: error.message, drafts: [] });
+      }
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/images") {
+      try {
+        const result = saveUploadedImage({
+          fileName: decodeURIComponent(request.headers["x-file-name"] ?? ""),
+          contentType: String(request.headers["content-type"] ?? "").split(";", 1)[0],
+          content: await readImageBody(request),
+        }, root);
+        sendJson(response, 200, result);
+      } catch (error) {
+        sendJson(response, 400, { ok: false, error: error.message });
       }
       return;
     }

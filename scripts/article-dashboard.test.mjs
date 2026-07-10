@@ -7,6 +7,7 @@ import path from "node:path";
 import {
   buildCommitMessage,
   buildMdxDocument,
+  createServer,
   createSlug,
   listDrafts,
   loadDraft,
@@ -99,6 +100,30 @@ test("saveUploadedImage rejects mismatched image uploads", () => {
     () => saveUploadedImage({ fileName: "script.svg", contentType: "image/png", content: Buffer.from("x") }),
     /이미지 파일 형식/,
   );
+});
+
+test("POST /api/images stores an image and returns its public path", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "article-dashboard-server-"));
+  const server = createServer(root);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+
+  try {
+    const { port } = server.address();
+    const response = await fetch(`http://127.0.0.1:${port}/api/images`, {
+      method: "POST",
+      headers: { "content-type": "image/png", "x-file-name": "drop.png" },
+      body: Buffer.from("png"),
+    });
+
+    assert.deepEqual(await response.json(), {
+      ok: true,
+      fileName: "drop.png",
+      filePath: path.join("public", "images", "drop.png"),
+      publicPath: "/images/drop.png",
+    });
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
 });
 
 
