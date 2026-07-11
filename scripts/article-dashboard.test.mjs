@@ -49,17 +49,66 @@ test("local dashboard reads and writes site content", async (t) => {
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => server.close());
   const { port } = server.address();
+  const origin = `http://127.0.0.1:${port}`;
 
-  const loaded = await fetch(`http://127.0.0.1:${port}/api/site`).then((response) => response.json());
+  const loaded = await fetch(`${origin}/api/site`).then((response) => response.json());
   assert.equal(loaded.ok, true);
   loaded.content.identity.title = "Updated title";
-  const saved = await fetch(`http://127.0.0.1:${port}/api/site`, {
+  const saved = await fetch(`${origin}/api/site`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", origin },
     body: JSON.stringify(loaded.content),
   }).then((response) => response.json());
   assert.equal(saved.content.identity.title, "Updated title");
   assert.equal(loadSiteContent(root).identity.title, "Updated title");
+});
+
+test("local dashboard rejects unsafe POST headers without changing site content", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "site-dashboard-post-policy-"));
+  saveSiteContent(validSiteContent(), root);
+  const server = createServer(root);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const { port } = server.address();
+  const url = `http://127.0.0.1:${port}/api/site`;
+  const changed = validSiteContent();
+  changed.identity.title = "Must not be saved";
+
+  const wrongType = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "text/plain" },
+    body: JSON.stringify(changed),
+  });
+  assert.equal(wrongType.status, 415);
+  assert.equal(loadSiteContent(root).identity.title, validSiteContent().identity.title);
+
+  const foreignOrigin = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: "https://evil.example" },
+    body: JSON.stringify(changed),
+  });
+  assert.equal(foreignOrigin.status, 403);
+  assert.equal(loadSiteContent(root).identity.title, validSiteContent().identity.title);
+
+  changed.identity.title = "Local CLI update";
+  const originlessJson = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(changed),
+  });
+  assert.equal(originlessJson.status, 200);
+  assert.equal(loadSiteContent(root).identity.title, "Local CLI update");
+});
+
+test("site editor restores focus after removing a repeat row", async (t) => {
+  const server = createServer(process.cwd());
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const { port } = server.address();
+  const html = await fetch(`http://127.0.0.1:${port}/`).then((response) => response.text());
+
+  assert.match(html, /removeButtons\[index\] \|\| removeButtons\[index - 1\] \|\| addButton/);
+  assert.match(html, /focusTarget\.focus\(\)/);
 });
 
 test("invalid site content never replaces the existing file", () => {

@@ -906,8 +906,13 @@ function renderDashboard(root) {
         renderRepeatList(addKey);
       }
       if (removeKey) {
-        targetArray(removeKey).splice(Number(event.target.dataset.index), 1);
+        const index = Number(event.target.dataset.index);
+        targetArray(removeKey).splice(index, 1);
         renderRepeatList(removeKey);
+        const removeButtons = document.querySelectorAll(repeatDefinitions[removeKey].container + " [data-remove]");
+        const addButton = document.querySelector('[data-add="' + removeKey + '"]');
+        const focusTarget = removeButtons[index] || removeButtons[index - 1] || addButton;
+        focusTarget.focus();
       }
     });
 
@@ -987,9 +992,33 @@ function sendJson(response, statusCode, data) {
   response.end(JSON.stringify(data, null, 2));
 }
 
+function acceptPostRequest(request, response) {
+  const contentType = String(request.headers["content-type"] ?? "").split(";", 1)[0].trim().toLowerCase();
+  if (contentType !== "application/json") {
+    sendJson(response, 415, { ok: false, error: "POST 요청은 application/json이어야 합니다." });
+    return false;
+  }
+
+  const originHeader = request.headers.origin;
+  if (!originHeader) return true;
+
+  try {
+    const host = new URL(`http://${request.headers.host}`);
+    const origin = new URL(originHeader);
+    if (origin.protocol === "http:" && origin.host === host.host && ["127.0.0.1", "localhost"].includes(host.hostname)) return true;
+  } catch {
+    // Reject malformed Host or Origin headers below.
+  }
+
+  sendJson(response, 403, { ok: false, error: "로컬 대시보드와 같은 Origin에서만 POST할 수 있습니다." });
+  return false;
+}
+
 export function createServer(root) {
   return http.createServer(async (request, response) => {
     const url = new URL(request.url ?? "/", `http://${HOST}`);
+
+    if (request.method === "POST" && !acceptPostRequest(request, response)) return;
 
     if (request.method === "GET" && url.pathname === "/") {
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
