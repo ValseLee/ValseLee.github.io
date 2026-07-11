@@ -20,7 +20,7 @@
     { "period": "Now", "organization": "Independent", "role": "Software Engineer / Writer", "description": "Building software systems and documenting the decisions behind them." }
   ],
   "contact": {
-    "email": "hello@example.com",
+    "email": "",
     "socials": [{ "label": "GitHub", "url": "https://github.com/ValseLee" }],
     "copyright": "© 2026 Celan. Built as a static archive."
   }

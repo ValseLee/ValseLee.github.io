@@ -4,13 +4,13 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "npm run verify:content && next build",
     "start": "next start",
     "lint": "eslint",
     "verify:content": "node scripts/verify-content.mjs",
     "write": "node scripts/article-dashboard.mjs",
     "test:article-dashboard": "node --test scripts/article-dashboard.test.mjs",
-    "test:post-excerpt": "node --test lib/post-excerpt.test.ts",
+    "test:post-excerpt": "node --test lib/post-excerpt.test.mjs",
     "test": "npm run test:article-dashboard && npm run test:post-excerpt"
   },
   "dependencies": {

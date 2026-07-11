@@ -111,9 +111,11 @@ export default function Home() {
         <div className="section-content contact-grid">
           <div>
             <p className="eyebrow">Contact</p>
-            <a className="contact-link" href={`mailto:${site.contact.email}`}>
-              {site.contact.email}
-            </a>
+            {site.contact.email && (
+              <a className="contact-link" href={`mailto:${site.contact.email}`}>
+                {site.contact.email}
+              </a>
+            )}
           </div>
           <ul>
             {site.contact.socials.map((social) => (

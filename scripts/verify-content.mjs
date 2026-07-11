@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { normalizeSiteContent } from "./article-dashboard.mjs";
 
 const root = process.cwd();
 const expectedTranslationSlugs = [
@@ -18,37 +19,7 @@ function read(relPath) {
   return fs.readFileSync(path.join(root, relPath), "utf8");
 }
 
-const site = JSON.parse(read("content/site.json"));
-for (const key of ["expertise", "experience"]) {
-  assert(Array.isArray(site[key]) && site[key].length, `site ${key} must be a non-empty array`);
-}
-const requiredScalars = [
-  site.identity.name,
-  site.identity.role,
-  site.identity.title,
-  site.identity.intro,
-  site.about.updated,
-  site.about.bio,
-  site.about.practice,
-  ...site.about.principles,
-  ...site.expertise.flatMap(({ label, items }) => [label, ...items]),
-  ...site.experience.flatMap(({ period, organization, role, description }) => [
-    period,
-    organization,
-    role,
-    description,
-  ]),
-  site.contact.email,
-  site.contact.copyright,
-  ...site.contact.socials.flatMap(({ label, url }) => [label, url]),
-];
-assert(
-  requiredScalars.every((value) => typeof value === "string" && value.trim()),
-  "every required site scalar must be a non-empty string",
-);
-for (const social of site.contact.socials) {
-  assert(social.url.startsWith("https://"), `social URL must start with https://: ${social.url}`);
-}
+normalizeSiteContent(JSON.parse(read("content/site.json")));
 
 function parseFrontmatter(file) {
   const match = file.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
@@ -112,5 +83,6 @@ const home = read("app/page.tsx");
 for (const section of ["about", "expertise", "articles", "experience", "contact"]) {
   assert(home.includes(`id=\"${section}\"`), `home missing ${section} section`);
 }
+assert(home.includes("site.contact.email &&"), "home must hide the email link when contact.email is empty");
 
 console.log(`verified ${actualSlugs.length} translations and no admin coupling`);

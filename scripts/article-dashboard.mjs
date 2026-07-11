@@ -65,11 +65,17 @@ export function normalizeSiteContent(raw) {
     return value.map((item, index) => requiredString(item, `${field}[${index}]`));
   };
 
-  const socials = Array.isArray(raw.contact?.socials) ? raw.contact.socials.map((social, index) => {
+  if (!Array.isArray(raw.contact?.socials)) throw new Error("contact.socials 배열 형식이 올바르지 않습니다.");
+  const socials = raw.contact.socials.map((social, index) => {
     const url = requiredString(social?.url, `contact.socials[${index}].url`);
-    if (!/^https:\/\//.test(url)) throw new Error(`contact.socials[${index}].url은 https URL이어야 합니다.`);
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== "https:" || !parsed.hostname) throw new Error();
+    } catch {
+      throw new Error(`contact.socials[${index}].url은 https URL이어야 합니다.`);
+    }
     return { label: requiredString(social?.label, `contact.socials[${index}].label`), url };
-  }) : [];
+  });
   if (socials.length > 20) throw new Error("contact.socials 항목은 20개 이하여야 합니다.");
 
   const expertise = (Array.isArray(raw.expertise) ? raw.expertise : []).map((group, index) => ({
@@ -86,8 +92,8 @@ export function normalizeSiteContent(raw) {
   }));
   if (experience.length === 0 || experience.length > 20) throw new Error("experience 항목은 1개 이상 20개 이하여야 합니다.");
 
-  const email = requiredString(raw.contact?.email, "contact.email");
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error("contact.email 형식이 올바르지 않습니다.");
+  const email = String(raw.contact?.email ?? "").trim();
+  if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error("contact.email 형식이 올바르지 않습니다.");
 
   return {
     identity,
@@ -365,7 +371,6 @@ export async function publishPost(rawInput, root = process.cwd(), now = new Date
 
   try {
     for (const [command, args] of [
-      ["npm", ["run", "verify:content"]],
       ["npm", ["run", "build"]],
       ["git", ["add", "--", relativePath]],
       ["git", ["commit", "-m", commitMessage]],
@@ -589,7 +594,7 @@ function renderDashboard(root) {
       </fieldset>
       <fieldset>
         <legend>Contact</legend>
-        <div class="field"><label for="site-email">Email</label><input id="site-email" type="email" required /></div>
+        <div class="field"><label for="site-email">Email (optional)</label><input id="site-email" type="email" /></div>
         <div class="field"><label for="site-copyright">Copyright</label><input id="site-copyright" required /></div>
         <div id="site-socials" class="repeat-list"></div><button type="button" data-add="socials" class="secondary">소셜 링크 추가</button>
       </fieldset>
@@ -833,6 +838,7 @@ function renderDashboard(root) {
           const input = document.createElement(field === "description" || field === "items" ? "textarea" : "input");
           input.value = field === "items" ? item.items.join("\\n") : item[field];
           input.placeholder = field;
+          input.setAttribute("aria-label", key + " row " + (index + 1) + " " + field);
           input.dataset.repeatKey = key;
           input.dataset.repeatIndex = String(index);
           input.dataset.repeatField = field;

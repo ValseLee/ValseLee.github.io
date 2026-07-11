@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import matter from "gray-matter";
 import { type PostCategory } from "@/lib/categories";
-import { createPostExcerpt } from "@/lib/post-excerpt";
+import { createPostExcerpt } from "@/lib/post-excerpt.mjs";
 export { POST_CATEGORIES, type PostCategory } from "@/lib/categories";
 
 const postsDirectory = path.join(process.cwd(), "content/posts");
