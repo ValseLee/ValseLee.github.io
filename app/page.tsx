@@ -1,54 +1,132 @@
 import Link from "next/link";
+import site from "@/content/site.json";
 import { getAllPosts } from "@/lib/posts";
 
+const formatDate = (value: string) =>
+  new Intl.DateTimeFormat("ko-KR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(value));
+
 export default function Home() {
-  const recentPosts = getAllPosts().slice(0, 5);
+  const posts = getAllPosts();
 
   return (
-    <div className="py-12">
-      <section className="mb-16">
-        <h1 className="font-serif text-5xl font-semibold mb-6">Thoughts</h1>
-        <p className="text-subtext text-lg leading-relaxed max-w-xl">
-          빌드 로그, 창업자 노트, 엔지니어링과 일상에 대한 생각을 기록합니다.
+    <>
+      <section className="hero-grid" aria-labelledby="home-title">
+        <p className="eyebrow">
+          {site.identity.name} · {site.identity.role}
         </p>
+        <h1 id="home-title" className="display-title">
+          {site.identity.title}
+        </h1>
+        <p className="hero-intro">{site.identity.intro}</p>
       </section>
 
-      <section>
-        <h2 className="font-serif text-2xl font-medium mb-8">Recent</h2>
-        <ul className="space-y-4">
-          {recentPosts.map((post) => {
-            const date = new Date(post.frontmatter.date);
-            const formattedDate = `${String(date.getMonth() + 1).padStart(2, "0")}.${String(date.getDate()).padStart(2, "0")}`;
+      <section id="about" className="section-grid">
+        <div className="section-number" aria-hidden="true">
+          1
+        </div>
+        <div className="section-content two-column-copy">
+          <div>
+            <p className="eyebrow">{site.about.updated}</p>
+            <h2>About</h2>
+            <p>{site.about.bio}</p>
+          </div>
+          <div>
+            <h3>Practice</h3>
+            <p>{site.about.practice}</p>
+            <ol>
+              {site.about.principles.map((principle) => (
+                <li key={principle}>{principle}</li>
+              ))}
+            </ol>
+          </div>
+        </div>
+      </section>
 
-            return (
-              <li key={post.slug}>
-                <Link
-                  href={`/posts/${post.slug}`}
-                  className="group flex items-baseline gap-4 transition-opacity duration-200 hover:opacity-70"
-                >
-                  <span className="text-subtext text-sm font-mono">
-                    {formattedDate}
-                  </span>
-                  <span className="text-foreground">
-                    {post.frontmatter.title}
-                  </span>
-                </Link>
+      <section id="expertise" className="section-grid">
+        <div className="section-number" aria-hidden="true">
+          2
+        </div>
+        <div className="section-content expertise-grid">
+          {site.expertise.map((group) => (
+            <div key={group.label}>
+              <h2>{group.label}</h2>
+              <ul>
+                {group.items.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section id="articles" className="section-grid">
+        <div className="section-number" aria-hidden="true">
+          3
+        </div>
+        <div className="section-content article-grid">
+          {posts.map((post) => (
+            <article key={post.slug} className="article-card">
+              <p className="eyebrow">
+                {formatDate(post.frontmatter.date)} · {post.frontmatter.category}
+              </p>
+              <h2>
+                <Link href={`/posts/${post.slug}`}>{post.frontmatter.title}</Link>
+              </h2>
+              <p>{post.excerpt}</p>
+              <ul className="tag-list">
+                {post.frontmatter.tags.map((tag) => (
+                  <li key={tag}>{tag}</li>
+                ))}
+              </ul>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section id="experience" className="section-grid">
+        <div className="section-number" aria-hidden="true">
+          4
+        </div>
+        <div className="section-content experience-list">
+          {site.experience.map((item) => (
+            <article key={`${item.period}-${item.organization}`}>
+              <p className="eyebrow">{item.period}</p>
+              <h2>{item.organization}</h2>
+              <h3>{item.role}</h3>
+              <p>{item.description}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section id="contact" className="section-grid">
+        <div className="section-number" aria-hidden="true">
+          5
+        </div>
+        <div className="section-content contact-grid">
+          <div>
+            <p className="eyebrow">Contact</p>
+            <a className="contact-link" href={`mailto:${site.contact.email}`}>
+              {site.contact.email}
+            </a>
+          </div>
+          <ul>
+            {site.contact.socials.map((social) => (
+              <li key={social.url}>
+                <a href={social.url} target="_blank" rel="noreferrer">
+                  {social.label} ↗
+                </a>
               </li>
-            );
-          })}
-        </ul>
-
-        {recentPosts.length === 0 && (
-          <p className="text-subtext">아직 작성된 글이 없습니다.</p>
-        )}
-
-        <Link
-          href="/archive"
-          className="inline-block mt-8 text-subtext hover:text-foreground transition-colors duration-200"
-        >
-          모든 글 보기 →
-        </Link>
+            ))}
+          </ul>
+          <p>{site.contact.copyright}</p>
+        </div>
       </section>
-    </div>
+    </>
   );
 }

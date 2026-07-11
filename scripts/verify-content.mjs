@@ -76,4 +76,9 @@ for (const relPath of searchableFiles) {
 const header = read("components/Header.tsx");
 assert(!header.includes('href: "/graph"'), "Header must not expose the inactive Graph page");
 
+const home = read("app/page.tsx");
+for (const section of ["about", "expertise", "articles", "experience", "contact"]) {
+  assert(home.includes(`id=\"${section}\"`), `home missing ${section} section`);
+}
+
 console.log(`verified ${actualSlugs.length} translations and no admin coupling`);
