@@ -7,6 +7,7 @@ import path from "node:path";
 import {
   buildCommitMessage,
   buildMdxDocument,
+  createServer,
   createSlug,
   listDrafts,
   loadDraft,
@@ -20,20 +21,45 @@ import {
   saveSiteContent,
 } from "./article-dashboard.mjs";
 
-test("site content is normalized and saved atomically", () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "site-content-"));
-  const content = {
+function validSiteContent() {
+  return {
     identity: { name: "Celan", role: "Software Engineer / Writer", title: "Celan builds systems and writes about them.", intro: "개발과 제품에 관한 기록입니다." },
     about: { updated: "2026.07", bio: "복잡한 문제를 단순한 시스템으로 만듭니다.", practice: "소프트웨어와 AI 도구를 연구합니다.", principles: ["Build small.", "Write clearly."] },
     expertise: [{ label: "Engineering", items: ["AI Systems", "Web Platforms"] }],
     experience: [{ period: "2024 — Now", organization: "Independent", role: "Software Engineer", description: "제품과 개발 도구를 만듭니다." }],
     contact: { email: "hello@example.com", socials: [{ label: "GitHub", url: "https://github.com/example" }], copyright: "© 2026 Celan" },
   };
+}
+
+test("site content is normalized and saved atomically", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "site-content-"));
+  const content = validSiteContent();
 
   const result = saveSiteContent(content, root);
   assert.equal(result.filePath, path.join("content", "site.json"));
   assert.deepEqual(loadSiteContent(root), content);
   assert.equal(fs.existsSync(path.join(root, "content", ".site.json.tmp")), false);
+});
+
+test("local dashboard reads and writes site content", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "site-dashboard-api-"));
+  fs.mkdirSync(path.join(root, "content"), { recursive: true });
+  saveSiteContent(validSiteContent(), root);
+  const server = createServer(root);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const { port } = server.address();
+
+  const loaded = await fetch(`http://127.0.0.1:${port}/api/site`).then((response) => response.json());
+  assert.equal(loaded.ok, true);
+  loaded.content.identity.title = "Updated title";
+  const saved = await fetch(`http://127.0.0.1:${port}/api/site`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(loaded.content),
+  }).then((response) => response.json());
+  assert.equal(saved.content.identity.title, "Updated title");
+  assert.equal(loadSiteContent(root).identity.title, "Updated title");
 });
 
 test("invalid site content never replaces the existing file", () => {
