@@ -45,6 +45,83 @@ export function parseCommaList(value) {
     .filter(Boolean);
 }
 
+function requiredString(value, field) {
+  const result = String(value ?? "").trim();
+  if (!result) throw new Error(`${field} 값을 입력해 주세요.`);
+  return result;
+}
+
+export function normalizeSiteContent(raw) {
+  if (!raw || typeof raw !== "object") throw new Error("사이트 콘텐츠 형식이 올바르지 않습니다.");
+  const identity = {
+    name: requiredString(raw.identity?.name, "identity.name"),
+    role: requiredString(raw.identity?.role, "identity.role"),
+    title: requiredString(raw.identity?.title, "identity.title"),
+    intro: requiredString(raw.identity?.intro, "identity.intro"),
+  };
+  const stringArray = (value, field) => {
+    if (!Array.isArray(value) || value.length === 0) throw new Error(`${field} 배열이 비어 있습니다.`);
+    if (value.length > 20) throw new Error(`${field} 항목은 20개 이하여야 합니다.`);
+    return value.map((item, index) => requiredString(item, `${field}[${index}]`));
+  };
+
+  const socials = Array.isArray(raw.contact?.socials) ? raw.contact.socials.map((social, index) => {
+    const url = requiredString(social?.url, `contact.socials[${index}].url`);
+    if (!/^https:\/\//.test(url)) throw new Error(`contact.socials[${index}].url은 https URL이어야 합니다.`);
+    return { label: requiredString(social?.label, `contact.socials[${index}].label`), url };
+  }) : [];
+  if (socials.length > 20) throw new Error("contact.socials 항목은 20개 이하여야 합니다.");
+
+  const expertise = (Array.isArray(raw.expertise) ? raw.expertise : []).map((group, index) => ({
+    label: requiredString(group?.label, `expertise[${index}].label`),
+    items: stringArray(group?.items, `expertise[${index}].items`),
+  }));
+  if (expertise.length === 0 || expertise.length > 20) throw new Error("expertise 항목은 1개 이상 20개 이하여야 합니다.");
+
+  const experience = (Array.isArray(raw.experience) ? raw.experience : []).map((item, index) => ({
+    period: requiredString(item?.period, `experience[${index}].period`),
+    organization: requiredString(item?.organization, `experience[${index}].organization`),
+    role: requiredString(item?.role, `experience[${index}].role`),
+    description: requiredString(item?.description, `experience[${index}].description`),
+  }));
+  if (experience.length === 0 || experience.length > 20) throw new Error("experience 항목은 1개 이상 20개 이하여야 합니다.");
+
+  const email = requiredString(raw.contact?.email, "contact.email");
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error("contact.email 형식이 올바르지 않습니다.");
+
+  return {
+    identity,
+    about: {
+      updated: requiredString(raw.about?.updated, "about.updated"),
+      bio: requiredString(raw.about?.bio, "about.bio"),
+      practice: requiredString(raw.about?.practice, "about.practice"),
+      principles: stringArray(raw.about?.principles, "about.principles"),
+    },
+    expertise,
+    experience,
+    contact: {
+      email,
+      socials,
+      copyright: requiredString(raw.contact?.copyright, "contact.copyright"),
+    },
+  };
+}
+
+export function loadSiteContent(root = process.cwd()) {
+  return normalizeSiteContent(JSON.parse(fs.readFileSync(path.join(root, "content", "site.json"), "utf8")));
+}
+
+export function saveSiteContent(raw, root = process.cwd()) {
+  const content = normalizeSiteContent(raw);
+  const directory = path.join(root, "content");
+  const filePath = path.join(directory, "site.json");
+  const temporaryPath = path.join(directory, ".site.json.tmp");
+  fs.mkdirSync(directory, { recursive: true });
+  fs.writeFileSync(temporaryPath, `${JSON.stringify(content, null, 2)}\n`, "utf8");
+  fs.renameSync(temporaryPath, filePath);
+  return { ok: true, filePath: path.join("content", "site.json"), content };
+}
+
 export function createSlug(title, date = new Date()) {
   const slug = String(title ?? "")
     .trim()

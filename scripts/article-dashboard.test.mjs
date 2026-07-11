@@ -10,12 +10,57 @@ import {
   createSlug,
   listDrafts,
   loadDraft,
+  loadSiteContent,
+  normalizeSiteContent,
   parseCommaList,
   parseDraftMdx,
   publishPost,
   resolveUniquePostFile,
   saveDraft,
+  saveSiteContent,
 } from "./article-dashboard.mjs";
+
+test("site content is normalized and saved atomically", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "site-content-"));
+  const content = {
+    identity: { name: "Celan", role: "Software Engineer / Writer", title: "Celan builds systems and writes about them.", intro: "개발과 제품에 관한 기록입니다." },
+    about: { updated: "2026.07", bio: "복잡한 문제를 단순한 시스템으로 만듭니다.", practice: "소프트웨어와 AI 도구를 연구합니다.", principles: ["Build small.", "Write clearly."] },
+    expertise: [{ label: "Engineering", items: ["AI Systems", "Web Platforms"] }],
+    experience: [{ period: "2024 — Now", organization: "Independent", role: "Software Engineer", description: "제품과 개발 도구를 만듭니다." }],
+    contact: { email: "hello@example.com", socials: [{ label: "GitHub", url: "https://github.com/example" }], copyright: "© 2026 Celan" },
+  };
+
+  const result = saveSiteContent(content, root);
+  assert.equal(result.filePath, path.join("content", "site.json"));
+  assert.deepEqual(loadSiteContent(root), content);
+  assert.equal(fs.existsSync(path.join(root, "content", ".site.json.tmp")), false);
+});
+
+test("invalid site content never replaces the existing file", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "site-content-invalid-"));
+  fs.mkdirSync(path.join(root, "content"), { recursive: true });
+  const file = path.join(root, "content", "site.json");
+  fs.writeFileSync(file, '{"existing":true}\n');
+
+  assert.throws(
+    () => saveSiteContent({ identity: { name: "" } }, root),
+    /identity\.name/,
+  );
+  assert.equal(fs.readFileSync(file, "utf8"), '{"existing":true}\n');
+});
+
+test("site content rejects unsafe social URLs", () => {
+  assert.throws(
+    () => normalizeSiteContent({
+      identity: { name: "Celan", role: "Developer", title: "Title", intro: "Intro" },
+      about: { updated: "Now", bio: "Bio", practice: "Practice", principles: ["One"] },
+      expertise: [{ label: "Engineering", items: ["Web"] }],
+      experience: [{ period: "Now", organization: "Studio", role: "Developer", description: "Work" }],
+      contact: { email: "hello@example.com", socials: [{ label: "Bad", url: "javascript:alert(1)" }], copyright: "© Celan" },
+    }),
+    /https URL/,
+  );
+});
 
 test("createSlug creates stable URL-safe slugs and keeps Korean text", () => {
   assert.equal(createSlug("Hello, Celan's New Article!"), "hello-celans-new-article");
