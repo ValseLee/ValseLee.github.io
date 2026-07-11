@@ -18,6 +18,38 @@ function read(relPath) {
   return fs.readFileSync(path.join(root, relPath), "utf8");
 }
 
+const site = JSON.parse(read("content/site.json"));
+for (const key of ["expertise", "experience"]) {
+  assert(Array.isArray(site[key]) && site[key].length, `site ${key} must be a non-empty array`);
+}
+const requiredScalars = [
+  site.identity.name,
+  site.identity.role,
+  site.identity.title,
+  site.identity.intro,
+  site.about.updated,
+  site.about.bio,
+  site.about.practice,
+  ...site.about.principles,
+  ...site.expertise.flatMap(({ label, items }) => [label, ...items]),
+  ...site.experience.flatMap(({ period, organization, role, description }) => [
+    period,
+    organization,
+    role,
+    description,
+  ]),
+  site.contact.email,
+  site.contact.copyright,
+  ...site.contact.socials.flatMap(({ label, url }) => [label, url]),
+];
+assert(
+  requiredScalars.every((value) => typeof value === "string" && value.trim()),
+  "every required site scalar must be a non-empty string",
+);
+for (const social of site.contact.socials) {
+  assert(social.url.startsWith("https://"), `social URL must start with https://: ${social.url}`);
+}
+
 function parseFrontmatter(file) {
   const match = file.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
   assert(match, "translation files must have YAML frontmatter");
