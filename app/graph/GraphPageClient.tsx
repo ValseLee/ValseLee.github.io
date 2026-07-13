@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 const GraphView = dynamic(() => import("@/components/GraphView"), {
   ssr: false,
   loading: () => (
-    <div className="flex items-center justify-center h-[calc(100vh-80px)]">
+    <div className="graph-panel graph-loading">
       <span className="text-subtext">Loading graph...</span>
     </div>
   ),
@@ -33,8 +33,13 @@ interface GraphPageClientProps {
 
 export default function GraphPageClient({ data }: GraphPageClientProps) {
   return (
-    <div className="fixed inset-0 top-20">
-      <GraphView data={data} />
-    </div>
+    <article className="page-section graph-page">
+      <p className="eyebrow">Connected writing</p>
+      <h1>Graph</h1>
+      <p className="graph-intro">Explore the links between articles. Select a node to open its post.</p>
+      <div className="graph-panel">
+        <GraphView data={data} />
+      </div>
+    </article>
   );
 }

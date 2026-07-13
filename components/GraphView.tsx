@@ -31,21 +31,19 @@ const categoryColors = Object.fromEntries(
 
 export default function GraphView({ data }: GraphViewProps) {
   const router = useRouter();
+  const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<ForceGraphMethods<GraphNode, GraphLink> | undefined>(undefined);
-  const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
+  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
 
   useEffect(() => {
-    const updateDimensions = () => {
-      setDimensions({
-        width: window.innerWidth,
-        height: window.innerHeight - 80,
-      });
-    };
-
-    updateDimensions();
-    window.addEventListener("resize", updateDimensions);
-    return () => window.removeEventListener("resize", updateDimensions);
+    const container = containerRef.current;
+    if (!container) return;
+    const observer = new ResizeObserver(([entry]) => {
+      setDimensions({ width: entry.contentRect.width, height: entry.contentRect.height });
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
   }, []);
 
   const handleNodeClick = useCallback(
@@ -58,9 +56,9 @@ export default function GraphView({ data }: GraphViewProps) {
   const getNodeColor = useCallback(
     (node: GraphNode) => {
       if (hoveredNode === node.id) {
-        return "#FFFFFF";
+        return "#0a0a0a";
       }
-      return categoryColors[node.category] ?? "#CCCCCC";
+      return categoryColors[node.category] ?? "#595959";
     },
     [hoveredNode]
   );
@@ -71,9 +69,9 @@ export default function GraphView({ data }: GraphViewProps) {
       const targetId = typeof link.target === "string" ? link.target : link.target.id;
 
       if (hoveredNode === sourceId || hoveredNode === targetId) {
-        return "#FFFFFF";
+        return "#0a0a0a";
       }
-      return "#262626";
+      return "#b7b4ad";
     },
     [hoveredNode]
   );
@@ -84,22 +82,26 @@ export default function GraphView({ data }: GraphViewProps) {
   }, []);
 
   return (
-    <ForceGraph2D
-      ref={graphRef}
-      graphData={data}
-      width={dimensions.width}
-      height={dimensions.height}
-      backgroundColor="#0A0A0A"
-      nodeColor={getNodeColor}
-      nodeRelSize={6}
-      nodeLabel={(node: GraphNode) => node.title}
-      linkColor={getLinkColor}
-      linkWidth={1}
-      onNodeClick={handleNodeClick}
-      onNodeHover={handleNodeHover}
-      enableNodeDrag={true}
-      enableZoomInteraction={true}
-      enablePanInteraction={true}
-    />
+    <div ref={containerRef} className="graph-canvas">
+      {dimensions.width > 0 && dimensions.height > 0 && (
+        <ForceGraph2D
+          ref={graphRef}
+          graphData={data}
+          width={dimensions.width}
+          height={dimensions.height}
+          backgroundColor="#f2f1ed"
+          nodeColor={getNodeColor}
+          nodeRelSize={6}
+          nodeLabel={(node: GraphNode) => node.title}
+          linkColor={getLinkColor}
+          linkWidth={1}
+          onNodeClick={handleNodeClick}
+          onNodeHover={handleNodeHover}
+          enableNodeDrag={true}
+          enableZoomInteraction={true}
+          enablePanInteraction={true}
+        />
+      )}
+    </div>
   );
 }

@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import matter from "gray-matter";
 import { type PostCategory } from "@/lib/categories";
+import { createPostExcerpt } from "@/lib/post-excerpt.mjs";
 export { POST_CATEGORIES, type PostCategory } from "@/lib/categories";
 
 const postsDirectory = path.join(process.cwd(), "content/posts");
@@ -24,6 +25,7 @@ export interface Post {
 export interface PostMeta {
   slug: string;
   frontmatter: PostFrontmatter;
+  excerpt: string;
 }
 
 export function getAllPosts(): PostMeta[] {
@@ -34,11 +36,12 @@ export function getAllPosts(): PostMeta[] {
       const slug = fileName.replace(/\.mdx$/, "");
       const fullPath = path.join(postsDirectory, fileName);
       const fileContents = fs.readFileSync(fullPath, "utf8");
-      const { data } = matter(fileContents);
+      const { data, content } = matter(fileContents);
 
       return {
         slug,
         frontmatter: data as PostFrontmatter,
+        excerpt: createPostExcerpt(content),
       };
     });
 
