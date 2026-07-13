@@ -19,6 +19,7 @@ import {
   resolveUniquePostFile,
   saveDraft,
   saveSiteContent,
+  saveUploadedImage,
 } from "./article-dashboard.mjs";
 
 function validSiteContent() {
@@ -233,6 +234,72 @@ test("resolveUniquePostFile appends numeric suffixes for duplicate slugs", () =>
   assert.equal(result.filePath, path.join(dir, "hello-world-3.mdx"));
 });
 
+test("saveUploadedImage writes an allowed image with a public path", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "article-dashboard-image-"));
+  const result = saveUploadedImage({
+    fileName: "A cat photo.PNG",
+    contentType: "image/png",
+    content: Buffer.from("png"),
+  }, root);
+
+  assert.deepEqual(result, {
+    ok: true,
+    fileName: "a-cat-photo.png",
+    filePath: path.join("public", "images", "a-cat-photo.png"),
+    publicPath: "/images/a-cat-photo.png",
+  });
+  assert.equal(fs.readFileSync(path.join(root, result.filePath), "utf8"), "png");
+});
+
+test("saveUploadedImage suffixes duplicate image names", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "article-dashboard-image-"));
+  saveUploadedImage({ fileName: "cat.png", contentType: "image/png", content: Buffer.from("one") }, root);
+
+  assert.equal(
+    saveUploadedImage({ fileName: "cat.png", contentType: "image/png", content: Buffer.from("two") }, root).fileName,
+    "cat-2.png",
+  );
+});
+
+test("saveUploadedImage rejects mismatched image uploads", () => {
+  assert.throws(
+    () => saveUploadedImage({ fileName: "script.svg", contentType: "image/png", content: Buffer.from("x") }),
+    /이미지 파일 형식/,
+  );
+});
+
+test("POST /api/images stores an image and returns its public path", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "article-dashboard-server-"));
+  const server = createServer(root);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+
+  try {
+    const { port } = server.address();
+    const response = await fetch(`http://127.0.0.1:${port}/api/images`, {
+      method: "POST",
+      headers: { "content-type": "image/png", "x-file-name": "drop.png" },
+      body: Buffer.from("png"),
+    });
+
+    assert.deepEqual(await response.json(), {
+      ok: true,
+      fileName: "drop.png",
+      filePath: path.join("public", "images", "drop.png"),
+      publicPath: "/images/drop.png",
+    });
+
+    const rejected = await fetch(`http://127.0.0.1:${port}/api/images`, {
+      method: "POST",
+      headers: { "content-type": "image/png", "x-file-name": "blocked.png", origin: "https://evil.example" },
+      body: Buffer.from("png"),
+    });
+    assert.equal(rejected.status, 403);
+    assert.equal(fs.existsSync(path.join(root, "public", "images", "blocked.png")), false);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 
 test("saveDraft writes an ignored local draft without committing", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "article-dashboard-root-"));
@@ -373,5 +440,33 @@ test("publishPost updates the loaded source post instead of creating a duplicate
     ["git", ["add", "--", path.join("content", "posts", "architecture-guidance-and-the-rules-1.mdx")]],
     ["git", ["commit", "-m", "2026-06-09 new article written by Celan - Architecture, Guidance, and the Rules (1)"]],
     ["git", ["push"]],
+  ]);
+});
+
+test("publishPost stages image assets referenced by the article body", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "article-dashboard-publish-image-"));
+  const imagesDirectory = path.join(root, "public", "images");
+  fs.mkdirSync(imagesDirectory, { recursive: true });
+  fs.writeFileSync(path.join(imagesDirectory, "drop.png"), "png", "utf8");
+  const calls = [];
+
+  await publishPost({
+    title: "Post with an image",
+    date: "2026-07-10",
+    category: "engineering",
+    tags: "",
+    links: "",
+    description: "이미지 stage 테스트",
+    body: "본문\n\n![drop](/images/drop.png)",
+  }, root, new Date("2026-07-10T00:00:00+09:00"), async (command, args, cwd) => {
+    calls.push({ command, args, cwd });
+    return `$ ${command} ${args.join(" ")}`;
+  });
+
+  assert.deepEqual(calls.find((call) => call.command === "git" && call.args[0] === "add").args, [
+    "add",
+    "--",
+    path.join("content", "posts", "post-with-an-image.mdx"),
+    path.join("public", "images", "drop.png"),
   ]);
 });

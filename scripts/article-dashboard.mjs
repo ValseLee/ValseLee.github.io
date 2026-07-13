@@ -9,6 +9,16 @@ const DEFAULT_PORT = 4317;
 const CATEGORIES = ["build-log", "founder-notes", "engineering", "life"];
 const DEFAULT_CATEGORY = "build-log";
 const VALID_CATEGORIES = new Set(CATEGORIES);
+const IMAGE_TYPES = new Map([
+  [".png", "image/png"],
+  [".jpg", "image/jpeg"],
+  [".jpeg", "image/jpeg"],
+  [".gif", "image/gif"],
+  [".webp", "image/webp"],
+  [".avif", "image/avif"],
+  [".svg", "image/svg+xml"],
+]);
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 function todayString(date = new Date()) {
   const year = date.getFullYear();
@@ -156,6 +166,43 @@ export function resolveUniquePostFile(postsDirectory, requestedSlug) {
   }
 
   return { slug, filePath };
+}
+
+export function resolveUniqueImageFile(imagesDirectory, requestedName) {
+  const extension = path.extname(requestedName);
+  const baseName = path.basename(requestedName, extension);
+  let fileName = requestedName;
+  let index = 2;
+
+  while (fs.existsSync(path.join(imagesDirectory, fileName))) {
+    fileName = `${baseName}-${index}${extension}`;
+    index += 1;
+  }
+
+  return { fileName, filePath: path.join(imagesDirectory, fileName) };
+}
+
+export function saveUploadedImage({ fileName, contentType, content }, root = process.cwd()) {
+  const baseName = path.basename(String(fileName ?? ""));
+  const originalExtension = path.extname(baseName);
+  const extension = originalExtension.toLowerCase();
+
+  if (IMAGE_TYPES.get(extension) !== contentType || !Buffer.isBuffer(content) || !content.length || content.length > MAX_IMAGE_BYTES) {
+    throw new Error("이미지 파일 형식 또는 크기가 올바르지 않습니다.");
+  }
+
+  const imagesDirectory = path.join(root, "public", "images");
+  const requestedName = `${createSlug(path.basename(baseName, originalExtension))}${extension}`;
+  fs.mkdirSync(imagesDirectory, { recursive: true });
+  const target = resolveUniqueImageFile(imagesDirectory, requestedName);
+  fs.writeFileSync(target.filePath, content);
+
+  return {
+    ok: true,
+    fileName: target.fileName,
+    filePath: path.join("public", "images", target.fileName),
+    publicPath: `/images/${target.fileName}`,
+  };
 }
 
 export function buildCommitMessage(date, title) {
@@ -350,6 +397,26 @@ function normalizeSourcePath(sourcePath, root) {
   return normalized;
 }
 
+function referencedImagePaths(body, root) {
+  const paths = new Set();
+  const imagePattern = /!\[[^\]]*\]\(\/images\/([^\s)]+)\)/g;
+
+  for (const match of String(body ?? "").matchAll(imagePattern)) {
+    let fileName;
+    try {
+      fileName = decodeURIComponent(match[1]);
+    } catch {
+      continue;
+    }
+
+    if (path.basename(fileName) !== fileName || !IMAGE_TYPES.has(path.extname(fileName).toLowerCase())) continue;
+    const relativePath = path.join("public", "images", fileName);
+    if (fs.existsSync(path.join(root, relativePath))) paths.add(relativePath);
+  }
+
+  return [...paths];
+}
+
 export async function publishPost(rawInput, root = process.cwd(), now = new Date(), runner = runCommand) {
   const article = normalizeArticleInput(rawInput, now);
   const postsDirectory = path.join(root, "content", "posts");
@@ -362,6 +429,7 @@ export async function publishPost(rawInput, root = process.cwd(), now = new Date
     : { ...resolveUniquePostFile(postsDirectory, requestedSlug), created: true };
   const { slug, filePath } = target;
   const relativePath = path.relative(root, filePath);
+  const stagedPaths = [relativePath, ...referencedImagePaths(article.body, root)];
   const mdx = buildMdxDocument(article);
   const commitMessage = buildCommitMessage(article.date, article.title);
   const logs = [];
@@ -372,7 +440,7 @@ export async function publishPost(rawInput, root = process.cwd(), now = new Date
   try {
     for (const [command, args] of [
       ["npm", ["run", "build"]],
-      ["git", ["add", "--", relativePath]],
+      ["git", ["add", "--", ...stagedPaths]],
       ["git", ["commit", "-m", commitMessage]],
       ["git", ["push"]],
     ]) {
@@ -383,7 +451,7 @@ export async function publishPost(rawInput, root = process.cwd(), now = new Date
   } catch (error) {
     if (!committed) {
       try {
-        await runner("git", ["restore", "--staged", "--", relativePath], root);
+        await runner("git", ["restore", "--staged", "--", ...stagedPaths], root);
       } catch {
         // The path may not have been staged yet.
       }
@@ -765,6 +833,53 @@ function renderDashboard(root) {
 
     refreshDrafts();
 
+    function insertImageAtSelection(fileName, publicPath, start, end) {
+      const alt = fileName.replaceAll("[", "").replaceAll("]", "");
+      body.setRangeText("![" + alt + "](" + publicPath + ")", start, end, "end");
+      body.focus();
+      updatePreview();
+    }
+
+    async function uploadDroppedImage(file, start, end) {
+      const response = await fetch("/api/images", {
+        method: "POST",
+        headers: { "content-type": file.type, "x-file-name": encodeURIComponent(file.name) },
+        body: file,
+      });
+      const result = await response.json();
+      if (!result.ok) throw new Error(result.error || "이미지를 저장하지 못했습니다.");
+      insertImageAtSelection(file.name, result.publicPath, start, end);
+      status.className = "status ok";
+      status.textContent = "이미지 추가: " + result.publicPath;
+    }
+
+    body.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+    });
+
+    body.addEventListener("drop", async (event) => {
+      event.preventDefault();
+      const files = event.dataTransfer.files;
+      if (files.length !== 1) {
+        status.className = "status error";
+        status.textContent = "이미지 파일 하나만 drop해 주세요.";
+        return;
+      }
+
+      const start = body.selectionStart;
+      const end = body.selectionEnd;
+      status.className = "status";
+      status.textContent = "이미지를 저장하는 중입니다...";
+
+      try {
+        await uploadDroppedImage(files[0], start, end);
+      } catch (error) {
+        status.className = "status error";
+        status.textContent = error.message;
+      }
+    });
+
     draftButton.addEventListener("click", async () => {
       draftButton.disabled = true;
       status.className = "status";
@@ -993,14 +1108,27 @@ async function readJsonBody(request) {
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
+async function readImageBody(request) {
+  const chunks = [];
+  let size = 0;
+
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > MAX_IMAGE_BYTES) throw new Error("이미지 파일은 10MB 이하여야 합니다.");
+    chunks.push(chunk);
+  }
+
+  return Buffer.concat(chunks);
+}
+
 function sendJson(response, statusCode, data) {
   response.writeHead(statusCode, { "content-type": "application/json; charset=utf-8" });
   response.end(JSON.stringify(data, null, 2));
 }
 
-function acceptPostRequest(request, response) {
+function acceptPostRequest(request, response, pathname) {
   const contentType = String(request.headers["content-type"] ?? "").split(";", 1)[0].trim().toLowerCase();
-  if (contentType !== "application/json") {
+  if (pathname !== "/api/images" && contentType !== "application/json") {
     sendJson(response, 415, { ok: false, error: "POST 요청은 application/json이어야 합니다." });
     return false;
   }
@@ -1024,7 +1152,7 @@ export function createServer(root) {
   return http.createServer(async (request, response) => {
     const url = new URL(request.url ?? "/", `http://${HOST}`);
 
-    if (request.method === "POST" && !acceptPostRequest(request, response)) return;
+    if (request.method === "POST" && !acceptPostRequest(request, response, url.pathname)) return;
 
     if (request.method === "GET" && url.pathname === "/") {
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
@@ -1043,6 +1171,20 @@ export function createServer(root) {
         sendJson(response, 200, { ok: true, drafts: listDrafts(root) });
       } catch (error) {
         sendJson(response, 500, { ok: false, error: error.message, drafts: [] });
+      }
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/images") {
+      try {
+        const result = saveUploadedImage({
+          fileName: decodeURIComponent(request.headers["x-file-name"] ?? ""),
+          contentType: String(request.headers["content-type"] ?? "").split(";", 1)[0],
+          content: await readImageBody(request),
+        }, root);
+        sendJson(response, 200, result);
+      } catch (error) {
+        sendJson(response, 400, { ok: false, error: error.message });
       }
       return;
     }
