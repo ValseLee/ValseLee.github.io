@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 
 const navItems = [
   { href: "/", label: "Home" },
+  { href: "/#articles", label: "Articles" },
   { href: "/archive", label: "Archive" },
   { href: "/categories", label: "Categories" },
   { href: "/translations", label: "Translations" },
@@ -15,22 +16,27 @@ export default function Header() {
   const pathname = usePathname();
 
   return (
-    <header className="py-8">
-      <nav className="flex flex-wrap gap-4 justify-center sm:justify-start">
-        {navItems.map((item) => {
-          const isActive = pathname === item.href;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`text-sm tracking-wide transition-opacity duration-200 hover:opacity-70 ${
-                isActive ? "text-accent" : "text-subtext"
-              }`}
-            >
-              [ {item.label} ]
-            </Link>
-          );
-        })}
+    <header className="site-header">
+      <Link href="/" className="site-mark" aria-label="Home">
+        VL
+      </Link>
+      <nav aria-label="Primary navigation">
+        <ol className="site-nav">
+          {navItems.map((item, index) => {
+            const isActive = item.href === "/"
+              ? pathname === "/"
+              : item.href !== "/#articles" && pathname.startsWith(item.href);
+
+            return (
+              <li key={item.href}>
+                <Link href={item.href} aria-current={isActive ? "page" : undefined}>
+                  <span aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
+                  {item.label}
+                </Link>
+              </li>
+            );
+          })}
+        </ol>
       </nav>
     </header>
   );

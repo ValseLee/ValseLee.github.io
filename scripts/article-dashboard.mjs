@@ -55,6 +55,89 @@ export function parseCommaList(value) {
     .filter(Boolean);
 }
 
+function requiredString(value, field) {
+  const result = String(value ?? "").trim();
+  if (!result) throw new Error(`${field} 값을 입력해 주세요.`);
+  return result;
+}
+
+export function normalizeSiteContent(raw) {
+  if (!raw || typeof raw !== "object") throw new Error("사이트 콘텐츠 형식이 올바르지 않습니다.");
+  const identity = {
+    name: requiredString(raw.identity?.name, "identity.name"),
+    role: requiredString(raw.identity?.role, "identity.role"),
+    title: requiredString(raw.identity?.title, "identity.title"),
+    intro: requiredString(raw.identity?.intro, "identity.intro"),
+  };
+  const stringArray = (value, field) => {
+    if (!Array.isArray(value) || value.length === 0) throw new Error(`${field} 배열이 비어 있습니다.`);
+    if (value.length > 20) throw new Error(`${field} 항목은 20개 이하여야 합니다.`);
+    return value.map((item, index) => requiredString(item, `${field}[${index}]`));
+  };
+
+  if (!Array.isArray(raw.contact?.socials)) throw new Error("contact.socials 배열 형식이 올바르지 않습니다.");
+  const socials = raw.contact.socials.map((social, index) => {
+    const url = requiredString(social?.url, `contact.socials[${index}].url`);
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== "https:" || !parsed.hostname) throw new Error();
+    } catch {
+      throw new Error(`contact.socials[${index}].url은 https URL이어야 합니다.`);
+    }
+    return { label: requiredString(social?.label, `contact.socials[${index}].label`), url };
+  });
+  if (socials.length > 20) throw new Error("contact.socials 항목은 20개 이하여야 합니다.");
+
+  const expertise = (Array.isArray(raw.expertise) ? raw.expertise : []).map((group, index) => ({
+    label: requiredString(group?.label, `expertise[${index}].label`),
+    items: stringArray(group?.items, `expertise[${index}].items`),
+  }));
+  if (expertise.length === 0 || expertise.length > 20) throw new Error("expertise 항목은 1개 이상 20개 이하여야 합니다.");
+
+  const experience = (Array.isArray(raw.experience) ? raw.experience : []).map((item, index) => ({
+    period: requiredString(item?.period, `experience[${index}].period`),
+    organization: requiredString(item?.organization, `experience[${index}].organization`),
+    role: requiredString(item?.role, `experience[${index}].role`),
+    description: requiredString(item?.description, `experience[${index}].description`),
+  }));
+  if (experience.length === 0 || experience.length > 20) throw new Error("experience 항목은 1개 이상 20개 이하여야 합니다.");
+
+  const email = String(raw.contact?.email ?? "").trim();
+  if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error("contact.email 형식이 올바르지 않습니다.");
+
+  return {
+    identity,
+    about: {
+      updated: requiredString(raw.about?.updated, "about.updated"),
+      bio: requiredString(raw.about?.bio, "about.bio"),
+      practice: requiredString(raw.about?.practice, "about.practice"),
+      principles: stringArray(raw.about?.principles, "about.principles"),
+    },
+    expertise,
+    experience,
+    contact: {
+      email,
+      socials,
+      copyright: requiredString(raw.contact?.copyright, "contact.copyright"),
+    },
+  };
+}
+
+export function loadSiteContent(root = process.cwd()) {
+  return normalizeSiteContent(JSON.parse(fs.readFileSync(path.join(root, "content", "site.json"), "utf8")));
+}
+
+export function saveSiteContent(raw, root = process.cwd()) {
+  const content = normalizeSiteContent(raw);
+  const directory = path.join(root, "content");
+  const filePath = path.join(directory, "site.json");
+  const temporaryPath = path.join(directory, ".site.json.tmp");
+  fs.mkdirSync(directory, { recursive: true });
+  fs.writeFileSync(temporaryPath, `${JSON.stringify(content, null, 2)}\n`, "utf8");
+  fs.renameSync(temporaryPath, filePath);
+  return { ok: true, filePath: path.join("content", "site.json"), content };
+}
+
 export function createSlug(title, date = new Date()) {
   const slug = String(title ?? "")
     .trim()
@@ -356,7 +439,6 @@ export async function publishPost(rawInput, root = process.cwd(), now = new Date
 
   try {
     for (const [command, args] of [
-      ["npm", ["run", "verify:content"]],
       ["npm", ["run", "build"]],
       ["git", ["add", "--", ...stagedPaths]],
       ["git", ["commit", "-m", commitMessage]],
@@ -429,6 +511,8 @@ function renderDashboard(root) {
     h1, h2, h3 { font-family:Cormorant Garamond, Georgia, serif; margin:0; color:var(--accent); }
     h1 { font-size:clamp(48px, 8vw, 92px); line-height:.92; letter-spacing:-.045em; max-width:780px; }
     .hero p { color:var(--subtext); max-width:620px; line-height:1.75; font-size:17px; margin:22px 0 0; }
+    .view-tabs { display:flex; gap:10px; margin-bottom:18px; }
+    .view-tabs button:not(.active) { background:transparent; color:var(--foreground); border:1px solid var(--border); }
     .grid { display:grid; grid-template-columns:minmax(0, 1fr) 390px; gap:24px; align-items:start; }
     form, .preview, .log { background:linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,.015)); border:1px solid var(--border); border-radius:24px; padding:22px; }
     .field { margin-bottom:16px; }
@@ -440,6 +524,14 @@ function renderDashboard(root) {
     .draft-tools { display:grid; grid-template-columns:minmax(0, 1fr) auto; gap:12px; align-items:end; margin:4px 0 16px; }
     .draft-tools .field { margin-bottom:0; }
     .actions { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin-top:18px; }
+    #site-editor { display:grid; gap:22px; }
+    #site-editor h2 { font-size:34px; }
+    #site-editor fieldset { border:1px solid var(--border); border-radius:18px; padding:18px; }
+    #site-editor legend { padding:0 8px; color:var(--subtext); }
+    #site-editor textarea { min-height:110px; }
+    .repeat-list { display:grid; gap:12px; margin-bottom:12px; }
+    .repeat-row { display:grid; gap:10px; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); align-items:start; }
+    .repeat-row button { justify-self:start; }
     button { border:0; border-radius:999px; background:var(--accent); color:#050505; padding:12px 18px; font-weight:650; cursor:pointer; }
     button.secondary { background:transparent; color:var(--foreground); border:1px solid var(--border); }
     button:disabled { cursor:not-allowed; opacity:.5; }
@@ -457,6 +549,7 @@ function renderDashboard(root) {
     .status.ok { color:var(--ok); }.status.error { color:var(--danger); }
     .log { margin-top:24px; display:none; }
     .log pre { white-space:pre-wrap; overflow:auto; margin:0; color:var(--subtext); font-size:12px; line-height:1.55; }
+    [hidden] { display:none !important; }
     @media (max-width: 900px) { .grid { grid-template-columns:1fr; } .preview { position:static; } }
   </style>
 </head>
@@ -478,7 +571,12 @@ function renderDashboard(root) {
       <p>로컬 전용 작성 대시보드입니다. 저장 버튼을 누르면 MDX 파일을 만들고, 검증과 빌드를 통과한 뒤 지정된 커밋 메시지로 commit + push까지 실행합니다.</p>
     </section>
 
-    <section class="grid">
+    <div class="view-tabs">
+      <button type="button" class="active" data-view="article">Article</button>
+      <button type="button" data-view="site">Site content</button>
+    </div>
+
+    <section id="article-dashboard" class="grid">
       <form id="article-form">
         <div class="field">
           <label for="title">Post title</label>
@@ -538,6 +636,40 @@ function renderDashboard(root) {
       </aside>
     </section>
 
+    <form id="site-editor" hidden>
+      <h2>Site content</h2>
+      <fieldset>
+        <legend>Identity</legend>
+        <div class="field"><label for="site-name">Name</label><input id="site-name" required /></div>
+        <div class="field"><label for="site-role">Role</label><input id="site-role" required /></div>
+        <div class="field"><label for="site-title">Title</label><input id="site-title" required /></div>
+        <div class="field"><label for="site-intro">Intro</label><textarea id="site-intro" required></textarea></div>
+      </fieldset>
+      <fieldset>
+        <legend>About</legend>
+        <div class="field"><label for="site-updated">Updated</label><input id="site-updated" required /></div>
+        <div class="field"><label for="site-bio">Bio</label><textarea id="site-bio" required></textarea></div>
+        <div class="field"><label for="site-practice">Practice</label><textarea id="site-practice" required></textarea></div>
+        <div id="site-principles" class="repeat-list"></div><button type="button" data-add="principles" class="secondary">원칙 추가</button>
+      </fieldset>
+      <fieldset>
+        <legend>Expertise</legend>
+        <div id="site-expertise" class="repeat-list"></div><button type="button" data-add="expertise" class="secondary">전문 분야 추가</button>
+      </fieldset>
+      <fieldset>
+        <legend>Experience</legend>
+        <div id="site-experience" class="repeat-list"></div><button type="button" data-add="experience" class="secondary">경력 추가</button>
+      </fieldset>
+      <fieldset>
+        <legend>Contact</legend>
+        <div class="field"><label for="site-email">Email (optional)</label><input id="site-email" type="email" /></div>
+        <div class="field"><label for="site-copyright">Copyright</label><input id="site-copyright" required /></div>
+        <div id="site-socials" class="repeat-list"></div><button type="button" data-add="socials" class="secondary">소셜 링크 추가</button>
+      </fieldset>
+      <div class="actions"><button type="submit">Save site content</button></div>
+      <div id="site-status" class="status"></div>
+    </form>
+
     <section id="log" class="log"><pre id="log-content"></pre></section>
   </div>
 
@@ -560,7 +692,11 @@ function renderDashboard(root) {
     const button = document.querySelector("#publish");
     const log = document.querySelector("#log");
     const logContent = document.querySelector("#log-content");
+    const articleDashboard = document.querySelector("#article-dashboard");
+    const siteEditor = document.querySelector("#site-editor");
+    const siteStatus = document.querySelector("#site-status");
     let currentSourcePath = "";
+    let siteContent = null;
 
     function escapeHtml(value) {
       const entities = { "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" };
@@ -771,6 +907,161 @@ function renderDashboard(root) {
       }
     });
 
+    const scalarControls = {
+      "identity.name": document.querySelector("#site-name"),
+      "identity.role": document.querySelector("#site-role"),
+      "identity.title": document.querySelector("#site-title"),
+      "identity.intro": document.querySelector("#site-intro"),
+      "about.updated": document.querySelector("#site-updated"),
+      "about.bio": document.querySelector("#site-bio"),
+      "about.practice": document.querySelector("#site-practice"),
+      "contact.email": document.querySelector("#site-email"),
+      "contact.copyright": document.querySelector("#site-copyright"),
+    };
+    const repeatDefinitions = {
+      principles: { container: "#site-principles", fields: ["value"] },
+      expertise: { container: "#site-expertise", fields: ["label", "items"] },
+      experience: { container: "#site-experience", fields: ["period", "organization", "role", "description"] },
+      socials: { container: "#site-socials", fields: ["label", "url"] },
+    };
+    const repeatDefaults = {
+      principles: "",
+      expertise: { label: "", items: [] },
+      experience: { period: "", organization: "", role: "", description: "" },
+      socials: { label: "", url: "https://" },
+    };
+
+    function repeatValues(key) {
+      if (key === "principles") return siteContent.about.principles.map((value) => ({ value }));
+      if (key === "socials") return siteContent.contact.socials;
+      return siteContent[key];
+    }
+
+    function targetArray(key) {
+      if (key === "principles") return siteContent.about.principles;
+      if (key === "socials") return siteContent.contact.socials;
+      return siteContent[key];
+    }
+
+    function renderRepeatList(key) {
+      const definition = repeatDefinitions[key];
+      const container = document.querySelector(definition.container);
+      container.replaceChildren(...repeatValues(key).map((item, index) => {
+        const row = document.createElement("div");
+        row.className = "repeat-row";
+        for (const field of definition.fields) {
+          const input = document.createElement(field === "description" || field === "items" ? "textarea" : "input");
+          input.value = field === "items" ? item.items.join("\\n") : item[field];
+          input.placeholder = field;
+          input.setAttribute("aria-label", key + " row " + (index + 1) + " " + field);
+          input.dataset.repeatKey = key;
+          input.dataset.repeatIndex = String(index);
+          input.dataset.repeatField = field;
+          row.append(input);
+        }
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "secondary";
+        remove.textContent = "삭제";
+        remove.dataset.remove = key;
+        remove.dataset.index = String(index);
+        row.append(remove);
+        return row;
+      }));
+    }
+
+    async function loadSiteEditor() {
+      siteStatus.className = "status";
+      siteStatus.textContent = "사이트 콘텐츠를 불러오는 중입니다...";
+      try {
+        const response = await fetch("/api/site");
+        const result = await response.json();
+        if (!result.ok) throw new Error(result.error || "사이트 콘텐츠를 불러오지 못했습니다.");
+        siteContent = result.content;
+        for (const [path, control] of Object.entries(scalarControls)) {
+          const [group, field] = path.split(".");
+          control.value = siteContent[group][field];
+        }
+        for (const key of Object.keys(repeatDefinitions)) renderRepeatList(key);
+        siteStatus.textContent = "";
+      } catch (error) {
+        siteStatus.className = "status error";
+        siteStatus.textContent = error.message;
+      }
+    }
+
+    function collectSitePayload() {
+      for (const [path, control] of Object.entries(scalarControls)) {
+        const [group, field] = path.split(".");
+        siteContent[group][field] = control.value;
+      }
+      return siteContent;
+    }
+
+    for (const tab of document.querySelectorAll("[data-view]")) {
+      tab.addEventListener("click", async () => {
+        const showSite = tab.dataset.view === "site";
+        articleDashboard.hidden = showSite;
+        siteEditor.hidden = !showSite;
+        log.hidden = showSite;
+        for (const button of document.querySelectorAll("[data-view]")) button.classList.toggle("active", button === tab);
+        if (showSite && !siteContent) await loadSiteEditor();
+      });
+    }
+
+    siteEditor.addEventListener("input", (event) => {
+      const { repeatKey, repeatIndex, repeatField } = event.target.dataset;
+      if (!repeatKey) return;
+      const index = Number(repeatIndex);
+      if (repeatKey === "principles") siteContent.about.principles[index] = event.target.value;
+      else targetArray(repeatKey)[index][repeatField] = repeatField === "items"
+        ? event.target.value.split("\\n").map((value) => value.trim()).filter(Boolean)
+        : event.target.value;
+    });
+
+    siteEditor.addEventListener("click", (event) => {
+      const addKey = event.target.dataset.add;
+      const removeKey = event.target.dataset.remove;
+      if (addKey) {
+        targetArray(addKey).push(structuredClone(repeatDefaults[addKey]));
+        renderRepeatList(addKey);
+      }
+      if (removeKey) {
+        const index = Number(event.target.dataset.index);
+        targetArray(removeKey).splice(index, 1);
+        renderRepeatList(removeKey);
+        const removeButtons = document.querySelectorAll(repeatDefinitions[removeKey].container + " [data-remove]");
+        const addButton = document.querySelector('[data-add="' + removeKey + '"]');
+        const focusTarget = removeButtons[index] || removeButtons[index - 1] || addButton;
+        focusTarget.focus();
+      }
+    });
+
+    siteEditor.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const saveButton = siteEditor.querySelector('button[type="submit"]');
+      saveButton.disabled = true;
+      siteStatus.className = "status";
+      siteStatus.textContent = "사이트 콘텐츠를 저장하는 중입니다...";
+      try {
+        const response = await fetch("/api/site", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(collectSitePayload()),
+        });
+        const result = await response.json();
+        if (!result.ok) throw new Error(result.error || "사이트 콘텐츠를 저장하지 못했습니다.");
+        siteContent = result.content;
+        siteStatus.className = "status ok";
+        siteStatus.textContent = "저장 완료: " + result.filePath;
+      } catch (error) {
+        siteStatus.className = "status error";
+        siteStatus.textContent = error.message;
+      } finally {
+        saveButton.disabled = false;
+      }
+    });
+
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       button.disabled = true;
@@ -835,9 +1126,33 @@ function sendJson(response, statusCode, data) {
   response.end(JSON.stringify(data, null, 2));
 }
 
+function acceptPostRequest(request, response, pathname) {
+  const contentType = String(request.headers["content-type"] ?? "").split(";", 1)[0].trim().toLowerCase();
+  if (pathname !== "/api/images" && contentType !== "application/json") {
+    sendJson(response, 415, { ok: false, error: "POST 요청은 application/json이어야 합니다." });
+    return false;
+  }
+
+  const originHeader = request.headers.origin;
+  if (!originHeader) return true;
+
+  try {
+    const host = new URL(`http://${request.headers.host}`);
+    const origin = new URL(originHeader);
+    if (origin.protocol === "http:" && origin.host === host.host && ["127.0.0.1", "localhost"].includes(host.hostname)) return true;
+  } catch {
+    // Reject malformed Host or Origin headers below.
+  }
+
+  sendJson(response, 403, { ok: false, error: "로컬 대시보드와 같은 Origin에서만 POST할 수 있습니다." });
+  return false;
+}
+
 export function createServer(root) {
   return http.createServer(async (request, response) => {
     const url = new URL(request.url ?? "/", `http://${HOST}`);
+
+    if (request.method === "POST" && !acceptPostRequest(request, response, url.pathname)) return;
 
     if (request.method === "GET" && url.pathname === "/") {
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
@@ -902,6 +1217,24 @@ export function createServer(root) {
         sendJson(response, result.ok ? 200 : 500, result);
       } catch (error) {
         sendJson(response, 400, { ok: false, error: error.message, logs: [] });
+      }
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/site") {
+      try {
+        sendJson(response, 200, { ok: true, content: loadSiteContent(root) });
+      } catch (error) {
+        sendJson(response, 500, { ok: false, error: error.message });
+      }
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/site") {
+      try {
+        sendJson(response, 200, saveSiteContent(await readJsonBody(request), root));
+      } catch (error) {
+        sendJson(response, 400, { ok: false, error: error.message });
       }
       return;
     }

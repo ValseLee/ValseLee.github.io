@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { normalizeSiteContent } from "./article-dashboard.mjs";
 
 const root = process.cwd();
 const expectedTranslationSlugs = [
@@ -17,6 +18,8 @@ function assert(condition, message) {
 function read(relPath) {
   return fs.readFileSync(path.join(root, relPath), "utf8");
 }
+
+normalizeSiteContent(JSON.parse(read("content/site.json")));
 
 function parseFrontmatter(file) {
   const match = file.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
@@ -75,5 +78,11 @@ for (const relPath of searchableFiles) {
 
 const header = read("components/Header.tsx");
 assert(!header.includes('href: "/graph"'), "Header must not expose the inactive Graph page");
+
+const home = read("app/page.tsx");
+for (const section of ["about", "expertise", "articles", "experience", "contact"]) {
+  assert(home.includes(`id=\"${section}\"`), `home missing ${section} section`);
+}
+assert(home.includes("site.contact.email &&"), "home must hide the email link when contact.email is empty");
 
 console.log(`verified ${actualSlugs.length} translations and no admin coupling`);

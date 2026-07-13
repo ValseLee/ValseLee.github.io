@@ -1,0 +1,27 @@
+{
+  "identity": {
+    "name": "Celan",
+    "role": "Software Engineer / Writer",
+    "title": "Celan builds systems and writes about them.",
+    "intro": "AI, software architecture, products, and the work of turning complicated ideas into useful systems."
+  },
+  "about": {
+    "updated": "Updated Jul. 2026",
+    "bio": "소프트웨어를 만들고, 그 과정에서 발견한 생각을 기록합니다. 복잡한 문제를 작고 분명한 시스템으로 바꾸는 일에 관심이 있습니다.",
+    "practice": "AI 에이전트, 소프트웨어 아키텍처, 제품 개발의 접점을 탐구합니다. 실험하고 구축한 뒤, 배운 것을 다시 글로 정리합니다.",
+    "principles": ["Build the smallest useful thing.", "Make decisions visible.", "Write to sharpen the work."]
+  },
+  "expertise": [
+    { "label": "Engineering", "items": ["AI Systems", "Software Architecture", "Web Platforms"] },
+    { "label": "Product", "items": ["Prototyping", "Developer Experience", "Technical Strategy"] },
+    { "label": "Writing", "items": ["Build Logs", "Engineering Essays", "Translations"] }
+  ],
+  "experience": [
+    { "period": "Now", "organization": "Independent", "role": "Software Engineer / Writer", "description": "Building software systems and documenting the decisions behind them." }
+  ],
+  "contact": {
+    "email": "",
+    "socials": [{ "label": "GitHub", "url": "https://github.com/ValseLee" }],
+    "copyright": "© 2026 Celan. Built as a static archive."
+  }
+}

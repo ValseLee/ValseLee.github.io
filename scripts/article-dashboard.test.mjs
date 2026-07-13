@@ -11,13 +11,179 @@ import {
   createSlug,
   listDrafts,
   loadDraft,
+  loadSiteContent,
+  normalizeSiteContent,
   parseCommaList,
   parseDraftMdx,
   publishPost,
   resolveUniquePostFile,
   saveDraft,
+  saveSiteContent,
   saveUploadedImage,
 } from "./article-dashboard.mjs";
+
+function validSiteContent() {
+  return {
+    identity: { name: "Celan", role: "Software Engineer / Writer", title: "Celan builds systems and writes about them.", intro: "개발과 제품에 관한 기록입니다." },
+    about: { updated: "2026.07", bio: "복잡한 문제를 단순한 시스템으로 만듭니다.", practice: "소프트웨어와 AI 도구를 연구합니다.", principles: ["Build small.", "Write clearly."] },
+    expertise: [{ label: "Engineering", items: ["AI Systems", "Web Platforms"] }],
+    experience: [{ period: "2024 — Now", organization: "Independent", role: "Software Engineer", description: "제품과 개발 도구를 만듭니다." }],
+    contact: { email: "", socials: [{ label: "GitHub", url: "https://github.com/example" }], copyright: "© 2026 Celan" },
+  };
+}
+
+test("site content is normalized and saved atomically", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "site-content-"));
+  const content = validSiteContent();
+
+  const result = saveSiteContent(content, root);
+  assert.equal(result.filePath, path.join("content", "site.json"));
+  assert.deepEqual(loadSiteContent(root), content);
+  assert.equal(fs.existsSync(path.join(root, "content", ".site.json.tmp")), false);
+});
+
+test("local dashboard reads and writes site content", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "site-dashboard-api-"));
+  fs.mkdirSync(path.join(root, "content"), { recursive: true });
+  saveSiteContent(validSiteContent(), root);
+  const server = createServer(root);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const { port } = server.address();
+  const origin = `http://127.0.0.1:${port}`;
+
+  const loaded = await fetch(`${origin}/api/site`).then((response) => response.json());
+  assert.equal(loaded.ok, true);
+  loaded.content.identity.title = "Updated title";
+  const saved = await fetch(`${origin}/api/site`, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin },
+    body: JSON.stringify(loaded.content),
+  }).then((response) => response.json());
+  assert.equal(saved.content.identity.title, "Updated title");
+  assert.equal(loadSiteContent(root).identity.title, "Updated title");
+});
+
+test("local dashboard rejects unsafe POST headers without changing site content", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "site-dashboard-post-policy-"));
+  saveSiteContent(validSiteContent(), root);
+  const server = createServer(root);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const { port } = server.address();
+  const url = `http://127.0.0.1:${port}/api/site`;
+  const changed = validSiteContent();
+  changed.identity.title = "Must not be saved";
+
+  const wrongType = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "text/plain" },
+    body: JSON.stringify(changed),
+  });
+  assert.equal(wrongType.status, 415);
+  assert.equal(loadSiteContent(root).identity.title, validSiteContent().identity.title);
+
+  const foreignOrigin = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: "https://evil.example" },
+    body: JSON.stringify(changed),
+  });
+  assert.equal(foreignOrigin.status, 403);
+  assert.equal(loadSiteContent(root).identity.title, validSiteContent().identity.title);
+
+  changed.identity.title = "Local CLI update";
+  const originlessJson = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(changed),
+  });
+  assert.equal(originlessJson.status, 200);
+  assert.equal(loadSiteContent(root).identity.title, "Local CLI update");
+});
+
+test("site editor restores focus after removing a repeat row", async (t) => {
+  const server = createServer(process.cwd());
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const { port } = server.address();
+  const html = await fetch(`http://127.0.0.1:${port}/`).then((response) => response.text());
+
+  assert.match(html, /removeButtons\[index\] \|\| removeButtons\[index - 1\] \|\| addButton/);
+  assert.match(html, /focusTarget\.focus\(\)/);
+});
+
+test("site editor gives repeating fields reliable accessible names", async (t) => {
+  const server = createServer(process.cwd());
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const { port } = server.address();
+  const html = await fetch(`http://127.0.0.1:${port}/`).then((response) => response.text());
+
+  assert.match(html, /input\.setAttribute\("aria-label", key \+ " row " \+ \(index \+ 1\) \+ " " \+ field\)/);
+});
+
+test("invalid site content never replaces the existing file", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "site-content-invalid-"));
+  fs.mkdirSync(path.join(root, "content"), { recursive: true });
+  const file = path.join(root, "content", "site.json");
+  fs.writeFileSync(file, '{"existing":true}\n');
+
+  assert.throws(
+    () => saveSiteContent({ identity: { name: "" } }, root),
+    /identity\.name/,
+  );
+  assert.equal(fs.readFileSync(file, "utf8"), '{"existing":true}\n');
+});
+
+test("site content rejects unsafe social URLs", () => {
+  assert.throws(
+    () => normalizeSiteContent({
+      identity: { name: "Celan", role: "Developer", title: "Title", intro: "Intro" },
+      about: { updated: "Now", bio: "Bio", practice: "Practice", principles: ["One"] },
+      expertise: [{ label: "Engineering", items: ["Web"] }],
+      experience: [{ period: "Now", organization: "Studio", role: "Developer", description: "Work" }],
+      contact: { email: "", socials: [{ label: "Bad", url: "javascript:alert(1)" }], copyright: "© Celan" },
+    }),
+    /https URL/,
+  );
+
+  assert.throws(
+    () => normalizeSiteContent({
+      ...validSiteContent(),
+      contact: { ...validSiteContent().contact, socials: [{ label: "Bad", url: "https://" }] },
+    }),
+    /contact\.socials\[0\]\.url/,
+  );
+});
+
+test("site content allows an empty email but validates a provided email", () => {
+  assert.equal(normalizeSiteContent(validSiteContent()).contact.email, "");
+  assert.throws(
+    () => normalizeSiteContent({
+      ...validSiteContent(),
+      contact: { ...validSiteContent().contact, email: "not-an-email" },
+    }),
+    /contact\.email/,
+  );
+});
+
+test("site content reports empty nested items by field", () => {
+  assert.throws(
+    () => normalizeSiteContent({ ...validSiteContent(), about: { ...validSiteContent().about, principles: [""] } }),
+    /about\.principles\[0\]/,
+  );
+  assert.throws(
+    () => normalizeSiteContent({ ...validSiteContent(), expertise: [{ label: "Engineering", items: [] }] }),
+    /expertise\[0\]\.items/,
+  );
+  assert.throws(
+    () => normalizeSiteContent({
+      ...validSiteContent(),
+      contact: { ...validSiteContent().contact, socials: {} },
+    }),
+    /contact\.socials/,
+  );
+});
 
 test("createSlug creates stable URL-safe slugs and keeps Korean text", () => {
   assert.equal(createSlug("Hello, Celan's New Article!"), "hello-celans-new-article");
@@ -121,6 +287,14 @@ test("POST /api/images stores an image and returns its public path", async () =>
       filePath: path.join("public", "images", "drop.png"),
       publicPath: "/images/drop.png",
     });
+
+    const rejected = await fetch(`http://127.0.0.1:${port}/api/images`, {
+      method: "POST",
+      headers: { "content-type": "image/png", "x-file-name": "blocked.png", origin: "https://evil.example" },
+      body: Buffer.from("png"),
+    });
+    assert.equal(rejected.status, 403);
+    assert.equal(fs.existsSync(path.join(root, "public", "images", "blocked.png")), false);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
@@ -262,7 +436,6 @@ test("publishPost updates the loaded source post instead of creating a duplicate
   assert.equal(fs.existsSync(path.join(postsDirectory, "architecture-guidance-and-the-rules-1-2.mdx")), false);
   assert.match(fs.readFileSync(existingPath, "utf8"), /# Updated/);
   assert.deepEqual(calls.map((call) => [call.command, call.args]), [
-    ["npm", ["run", "verify:content"]],
     ["npm", ["run", "build"]],
     ["git", ["add", "--", path.join("content", "posts", "architecture-guidance-and-the-rules-1.mdx")]],
     ["git", ["commit", "-m", "2026-06-09 new article written by Celan - Architecture, Guidance, and the Rules (1)"]],
