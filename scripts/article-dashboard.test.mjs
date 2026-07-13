@@ -16,6 +16,7 @@ import {
   parseCommaList,
   parseDraftMdx,
   publishPost,
+  renderMarkdownPreview,
   resolveUniquePostFile,
   saveDraft,
   saveSiteContent,
@@ -183,6 +184,15 @@ test("site content reports empty nested items by field", () => {
     }),
     /contact\.socials/,
   );
+});
+
+test("renderMarkdownPreview supports standard Markdown syntax", () => {
+  const html = renderMarkdownPreview("**굵게** [링크](/archive)\n\n1. 첫째\n2. 둘째\n\n![설명](/images/example.png)");
+
+  assert.match(html, /<strong>굵게<\/strong>/);
+  assert.match(html, /<a href="\/archive">링크<\/a>/);
+  assert.match(html, /<ol>/);
+  assert.match(html, /<img src="\/images\/example\.png" alt="설명" \/>/);
 });
 
 test("createSlug creates stable URL-safe slugs and keeps Korean text", () => {

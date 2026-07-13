@@ -3,6 +3,7 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { micromark } from "micromark";
 
 const HOST = "127.0.0.1";
 const DEFAULT_PORT = 4317;
@@ -34,6 +35,10 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+export function renderMarkdownPreview(markdown) {
+  return micromark(String(markdown ?? ""));
 }
 
 function yamlString(value) {
@@ -543,6 +548,10 @@ function renderDashboard(root) {
     .markdown h1, .markdown h2, .markdown h3 { margin:24px 0 12px; letter-spacing:-.02em; }
     .markdown h1 { font-size:38px; }.markdown h2 { font-size:28px; }.markdown h3 { font-size:22px; }
     .markdown p { margin:0 0 16px; }.markdown code { background:var(--border); padding:2px 6px; border-radius:6px; }
+    .markdown a { color:var(--accent); text-decoration:underline; text-underline-offset:2px; }
+    .markdown ul, .markdown ol { margin:0 0 16px; padding-left:24px; }
+    .markdown li { margin-bottom:6px; }
+    .markdown img { display:block; max-width:100%; height:auto; margin:16px 0; border-radius:12px; }
     .markdown pre { background:var(--border); padding:14px; border-radius:14px; overflow:auto; }
     .markdown blockquote { border-left:2px solid var(--subtext); margin:16px 0; padding-left:14px; color:var(--subtext); }
     .status { margin-top:18px; white-space:pre-wrap; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; line-height:1.55; color:var(--subtext); }
@@ -698,50 +707,30 @@ function renderDashboard(root) {
     let currentSourcePath = "";
     let siteContent = null;
 
-    function escapeHtml(value) {
-      const entities = { "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" };
-      return String(value).replace(/[&<>"']/g, (char) => entities[char]);
-    }
+    let previewTimer;
+    let previewRequest = 0;
 
-    function renderMarkdown(markdown) {
-      const lines = markdown.split("\\n");
-      let html = "";
-      let inCode = false;
-      let paragraph = [];
-      const tick = String.fromCharCode(96);
-      const fence = tick + tick + tick;
-      const inlineCodePattern = new RegExp(tick + "([^" + tick + "]+)" + tick, "g");
-      const flushParagraph = () => {
-        if (paragraph.length) {
-          html += "<p>" + escapeHtml(paragraph.join(" ")).replace(inlineCodePattern, "<code>$1</code>") + "</p>";
-          paragraph = [];
-        }
-      };
-
-      for (const line of lines) {
-        if (line.startsWith(fence)) {
-          if (inCode) html += "</code></pre>";
-          else { flushParagraph(); html += "<pre><code>"; }
-          inCode = !inCode;
-          continue;
-        }
-        if (inCode) { html += escapeHtml(line) + "\\n"; continue; }
-        if (!line.trim()) { flushParagraph(); continue; }
-        if (line.startsWith("### ")) { flushParagraph(); html += "<h3>" + escapeHtml(line.slice(4)) + "</h3>"; continue; }
-        if (line.startsWith("## ")) { flushParagraph(); html += "<h2>" + escapeHtml(line.slice(3)) + "</h2>"; continue; }
-        if (line.startsWith("# ")) { flushParagraph(); html += "<h1>" + escapeHtml(line.slice(2)) + "</h1>"; continue; }
-        if (line.startsWith("> ")) { flushParagraph(); html += "<blockquote>" + escapeHtml(line.slice(2)) + "</blockquote>"; continue; }
-        if (line.startsWith("- ")) { flushParagraph(); html += "<p>• " + escapeHtml(line.slice(2)) + "</p>"; continue; }
-        paragraph.push(line.trim());
+    async function renderPreview() {
+      const request = ++previewRequest;
+      try {
+        const response = await fetch("/api/preview", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ markdown: body.value }),
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || "미리보기를 렌더링하지 못했습니다.");
+        if (request === previewRequest) previewBody.innerHTML = result.html;
+      } catch (error) {
+        if (request === previewRequest) previewBody.textContent = error.message;
       }
-      flushParagraph();
-      return html;
     }
 
     function updatePreview() {
       previewTitle.textContent = title.value.trim() || "Untitled";
       previewMeta.textContent = date.value + " · " + category.value;
-      previewBody.innerHTML = renderMarkdown(body.value);
+      clearTimeout(previewTimer);
+      previewTimer = setTimeout(renderPreview, 100);
     }
 
     for (const element of [title, date, category, body]) element.addEventListener("input", updatePreview);
@@ -1204,6 +1193,16 @@ export function createServer(root) {
         const body = await readJsonBody(request);
         const result = saveDraft(body, root);
         sendJson(response, 200, result);
+      } catch (error) {
+        sendJson(response, 400, { ok: false, error: error.message });
+      }
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/preview") {
+      try {
+        const body = await readJsonBody(request);
+        sendJson(response, 200, { ok: true, html: renderMarkdownPreview(body.markdown) });
       } catch (error) {
         sendJson(response, 400, { ok: false, error: error.message });
       }
