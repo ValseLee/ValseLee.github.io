@@ -317,6 +317,109 @@ test("portfolio mode serves the local dashboard and portfolio JSON APIs", async 
   assert.deepEqual(loaded.project, project);
 });
 
+test("portfolio period controls retain their browser behavior", async (t) => {
+  const project = portfolioProject({ period: "2026.01.02 — 2026.07.21" });
+  const root = createPortfolioRoot(t, { projects: [project] });
+  const origin = await startPortfolioServer(t, root);
+  const html = await (await fetch(`${origin}/`)).text();
+  const browserScript = html.match(/<script>([\s\S]*?)<\/script>/);
+  assert.ok(browserScript);
+
+  const createElement = () => {
+    const listeners = new Map();
+    return {
+      value: "",
+      checked: false,
+      disabled: false,
+      required: false,
+      min: "",
+      files: [],
+      children: [],
+      style: {},
+      addEventListener(type, listener) { listeners.set(type, listener); },
+      dispatch(type) { return listeners.get(type)?.({ preventDefault() {} }); },
+      append(...children) { this.children.push(...children); },
+      replaceChildren(...children) { this.children = children; },
+    };
+  };
+  const selectors = ["portfolio-form", "project-select", "new-project", "name", "period-start", "period-end", "period-present", "description-markdown", "media-input", "media-rows", "draft-select", "load-draft", "save-draft", "publish", "preview", "status", "command-log"];
+  const elements = new Map(selectors.map((id) => [`#${id}`, createElement()]));
+  let formValid = false;
+  let validityChecks = 0;
+  elements.get("#portfolio-form").reportValidity = () => {
+    validityChecks += 1;
+    return formValid;
+  };
+  let confirmCalls = 0;
+  const requests = [];
+  const browserFetch = async (url, options = {}) => {
+    requests.push({ url, options });
+    let result;
+    if (url === "/api/portfolio") result = { ok: true, projects: [project] };
+    else if (url === "/api/portfolio/drafts") result = { ok: true, drafts: [] };
+    else if (url === "/api/portfolio/preview") result = { ok: true, html: "<p>preview</p>" };
+    else if (url === "/api/portfolio/draft" && options.method === "POST") result = { ok: true };
+    else throw new Error(`Unexpected browser request: ${url}`);
+    return { ok: true, status: 200, json: async () => result };
+  };
+
+  vm.runInNewContext(browserScript[1], {
+    document: {
+      querySelector: (selector) => elements.get(selector),
+      createElement,
+    },
+    fetch: browserFetch,
+    confirm: () => { confirmCalls += 1; return false; },
+    structuredClone,
+    clearTimeout() {},
+    setTimeout(callback) { callback(); return 1; },
+  });
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  await settle();
+
+  const start = elements.get("#period-start");
+  const end = elements.get("#period-end");
+  const present = elements.get("#period-present");
+  const preview = elements.get("#preview");
+  assert.deepEqual(
+    { start: start.value, end: end.value, present: present.checked, min: end.min, disabled: end.disabled, required: end.required },
+    { start: "2026-01-02", end: "2026-07-21", present: false, min: "2026-01-02", disabled: false, required: true },
+  );
+
+  start.value = "2026-02-03";
+  start.dispatch("input");
+  end.value = "2026-08-22";
+  end.dispatch("input");
+  assert.equal(preview.children[1].textContent, "2026.02.03 — 2026.08.22");
+  elements.get("#new-project").dispatch("click");
+  assert.equal(confirmCalls, 1);
+  assert.equal(start.value, "2026-02-03");
+
+  end.value = "2026-01-01";
+  end.dispatch("input");
+  assert.equal(end.min, "2026-02-03");
+  assert.equal(preview.children[1].textContent, "");
+
+  present.checked = true;
+  present.dispatch("change");
+  assert.deepEqual(
+    { end: end.value, disabled: end.disabled, required: end.required, preview: preview.children[1].textContent },
+    { end: "", disabled: true, required: false, preview: "2026.02.03 — Present" },
+  );
+
+  const draftPosts = () => requests.filter(({ url, options }) => url === "/api/portfolio/draft" && options.method === "POST");
+  elements.get("#save-draft").dispatch("click");
+  assert.equal(validityChecks, 1);
+  assert.equal(draftPosts().length, 0);
+
+  formValid = true;
+  elements.get("#save-draft").dispatch("click");
+  await settle();
+  assert.equal(validityChecks, 2);
+  assert.equal(draftPosts().length, 1);
+  assert.equal(JSON.parse(draftPosts()[0].options.body).period, "2026.02.03 — Present");
+});
+
 test("portfolio mode stores and serves MP4 media and rejects cross-origin POST", async (t) => {
   const root = createPortfolioRoot(t, { projects: [] });
   const origin = await startPortfolioServer(t, root);
