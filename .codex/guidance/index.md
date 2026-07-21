@@ -12,7 +12,7 @@ Repo-local guidance lives in `.codex/guidance/`. Read this file before repositor
 - **React:** Use Server Components by default and keep `"use client"` on the smallest interactive leaf.
 - **TypeScript:** Keep strict types at boundaries; accept `unknown` and narrow it instead of using `any` or unchecked casts.
 - **Styling:** Keep tokens and site primitives global, one-off utilities local, and non-trivial component styles in colocated CSS Modules. Parents do not reach into child internals.
-- **Content:** Treat MDX and JSON as validated build inputs; keep public routes compatible with static export.
+- **Content:** Treat MDX, JSON, and TSX content modules as build inputs; keep public routes compatible with static export.
 - **Local tools:** Keep writes in localhost-only `scripts/`, validate before mutation, and preserve existing files on failure.
 - **Testing:** Protect non-trivial behavior with the smallest runnable regression check; use the existing `node:test` surface first.
 - **Dependencies:** Reuse repository code, platform APIs, and installed packages before adding code or dependencies.

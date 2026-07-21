@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Figtree } from "next/font/google";
 import Header from "@/components/Header";
-import site from "@/content/site.json";
+import site from "@/content/site";
 import "./globals.css";
 
 const figtree = Figtree({
@@ -11,7 +11,7 @@ const figtree = Figtree({
 });
 
 export const metadata: Metadata = {
-  title: site.identity.title,
+  title: site.identity.titleText,
   description: site.identity.intro,
 };
 

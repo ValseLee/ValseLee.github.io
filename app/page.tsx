@@ -1,5 +1,5 @@
 import Link from "next/link";
-import site from "@/content/site.json";
+import site from "@/content/site";
 import { getAllPosts } from "@/lib/posts";
 
 const formatDate = (value: string) =>

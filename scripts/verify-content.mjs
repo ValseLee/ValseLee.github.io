@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import { normalizeSiteContent } from "./article-dashboard.mjs";
 
 const root = process.cwd();
 const expectedTranslationSlugs = [
@@ -18,8 +17,6 @@ function assert(condition, message) {
 function read(relPath) {
   return fs.readFileSync(path.join(root, relPath), "utf8");
 }
-
-normalizeSiteContent(JSON.parse(read("content/site.json")));
 
 function parseFrontmatter(file) {
   const match = file.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);

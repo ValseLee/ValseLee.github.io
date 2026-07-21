@@ -1,4 +1,4 @@
-import site from "@/content/site.json";
+import site from "@/content/site";
 
 export default function AboutPage() {
   return (

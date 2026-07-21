@@ -15,7 +15,7 @@ SIGNAL: When triggered -> preserve directory ownership and keep dependencies flo
    - `app/`: routes, layouts, metadata, page composition, and server-side loading.
    - `components/`: reusable UI and substantial interactive leaf components.
    - `lib/`: shared content readers, transformations, constants, and runtime-neutral types.
-   - `content/`: tracked MDX and JSON build inputs; no application imports.
+   - `content/`: tracked MDX, JSON, and TSX build inputs; no application imports.
    - `scripts/`: localhost authoring and verification tools; never imported by the deployed app.
 2. **Use Server Components by default.** Add `"use client"` only at the smallest component that needs browser APIs, hooks, or interaction. Pass serializable values across the server/client boundary.
 3. **Colocate before promoting.** Keep route-only code beside its route and component-only types beside the component. Promote code after a second real consumer needs the same behavior or when it owns a distinct external-system responsibility.

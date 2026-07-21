@@ -1,7 +1,7 @@
 # Content and Static Route Rules
 
 <primary_directive>
-Treat tracked MDX and JSON as typed build inputs. Read them on the server, validate them at the content boundary, and keep every public route compatible with static export.
+Treat tracked MDX, JSON, and TSX content modules as typed build inputs. Read them on the server, validate them at the content boundary, and keep every public route compatible with static export.
 </primary_directive>
 
 <cognitive_anchors>
@@ -11,7 +11,7 @@ SIGNAL: When triggered -> apply content validation, server-only reading, and sta
 
 ## Core Rules
 
-1. **Keep content tracked and build-time.** Posts live in `content/posts`, translations in `content/translations`, and profile data in `content/site.json`. Do not add runtime persistence for deployed pages.
+1. **Keep content tracked and build-time.** Posts live in `content/posts`, translations in `content/translations`, and profile content in `content/site.tsx`. Do not add runtime persistence for deployed pages.
 2. **Read files only from server-capable code.** Keep filesystem access in `lib/` readers or local `scripts/`; never import those readers into Client Components.
 3. **Validate at the boundary.** Treat parsed frontmatter, JSON, slugs, and local editor payloads as untrusted until required fields, arrays, enums, dates, and URLs are checked. Do not spread unchecked casts through consumers.
 4. **Change content contracts atomically.** When a content field changes, update its type, reader/normalizer, verification script, authoring surface, and every renderer in the same change.
