@@ -13,11 +13,13 @@ import {
   listPortfolioDrafts,
   loadDraft,
   loadPortfolioDraft,
+  mergePortfolioProject,
   normalizePortfolioContent,
   normalizePortfolioProject,
   parseCommaList,
   parseDraftMdx,
   publishPost,
+  publishPortfolioProject,
   renderMarkdownPreview,
   resolveUniquePostFile,
   saveDraft,
@@ -159,6 +161,103 @@ test("portfolio drafts round-trip and failed replacement preserves the previous 
   assert.equal(listPortfolioDrafts(root).some(({ fileName, name }) => fileName === "broken.json" && name === "broken"), true);
   assert.throws(() => loadPortfolioDraft("broken.json", root), /malformed or invalid/i);
   assert.throws(() => loadPortfolioDraft("../secret.json", root), /draft file/i);
+});
+
+function portfolioProject(overrides = {}) {
+  return {
+    slug: "loutine",
+    name: "Loutine",
+    period: "2025",
+    descriptionMarkdown: "Description",
+    media: [],
+    ...overrides,
+  };
+}
+
+function createPortfolioRoot(t, content) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "portfolio-publish-"));
+  if (content !== undefined) {
+    fs.mkdirSync(path.join(root, "content"), { recursive: true });
+    fs.writeFileSync(path.join(root, "content", "portfolio.json"), `${JSON.stringify(content, null, 2)}\n`);
+  }
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  return root;
+}
+
+test("publishPortfolioProject updates by slug and stages only canonical JSON and referenced media", async (t) => {
+  const root = createPortfolioRoot(t, {
+    projects: [portfolioProject({ slug: "first", name: "First" }), portfolioProject({ slug: "loutine", name: "Old" })],
+  });
+  fs.mkdirSync(path.join(root, "public", "portfolio"), { recursive: true });
+  fs.writeFileSync(path.join(root, "public", "portfolio", "demo.mp4"), "mp4");
+  const calls = [];
+  const runner = async (command, args, cwd) => {
+    calls.push({ command, args, cwd });
+    return `$ ${command} ${args.join(" ")}`;
+  };
+  assert.deepEqual(
+    mergePortfolioProject({ projects: [portfolioProject({ slug: "first", name: "First" }), portfolioProject({ name: "Old" })] }, portfolioProject()).projects.map(({ name }) => name),
+    ["First", "Loutine"],
+  );
+
+  const result = await publishPortfolioProject(
+    portfolioProject({ slug: "loutine", name: "Loutine", media: [{ kind: "video", src: "/portfolio/demo.mp4", caption: "Demo" }] }),
+    root,
+    new Date("2026-07-21T00:00:00.000Z"),
+    runner,
+  );
+
+  assert.equal(result.committed, true);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, "content", "portfolio.json"), "utf8")).projects.map(({ slug }) => slug), ["first", "loutine"]);
+  assert.deepEqual(calls.map(({ command, args, cwd }) => [command, args, cwd]), [
+    ["npm", ["run", "build"], root],
+    ["git", ["add", "--", "content/portfolio.json", "public/portfolio/demo.mp4"], root],
+    ["git", ["commit", "-m", "2026-07-21 update portfolio - Loutine"], root],
+    ["git", ["push"], root],
+  ]);
+});
+
+test("publishPortfolioProject returns before commands when canonical bytes are unchanged", async (t) => {
+  const project = portfolioProject();
+  const root = createPortfolioRoot(t, { projects: [project] });
+  const calls = [];
+  const result = await publishPortfolioProject(project, root, new Date("2026-07-21"), async (...args) => {
+    calls.push(args);
+    return "unexpected";
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.committed, false);
+  assert.deepEqual(calls, []);
+});
+
+test("publishPortfolioProject restores canonical state before commit and keeps a commit after push failure", async (t) => {
+  const root = createPortfolioRoot(t, { projects: [portfolioProject({ name: "Old" })] });
+  const filePath = path.join(root, "content", "portfolio.json");
+  const previousBytes = fs.readFileSync(filePath);
+  const failingBuild = async (command, args) => {
+    if (command === "npm") throw new Error("build failed");
+    return `$ ${command} ${args.join(" ")}`;
+  };
+
+  const buildResult = await publishPortfolioProject(portfolioProject({ name: "New" }), root, new Date("2026-07-21"), failingBuild);
+  assert.equal(buildResult.committed, false);
+  assert.deepEqual(fs.readFileSync(filePath), previousBytes);
+
+  const newRoot = createPortfolioRoot(t);
+  const newFilePath = path.join(newRoot, "content", "portfolio.json");
+  const newBuildResult = await publishPortfolioProject(portfolioProject(), newRoot, new Date("2026-07-21"), failingBuild);
+  assert.equal(newBuildResult.committed, false);
+  assert.equal(fs.existsSync(newFilePath), false);
+
+  const pushFailure = async (command, args) => {
+    if (command === "git" && args[0] === "push") throw new Error("no upstream");
+    return `$ ${command} ${args.join(" ")}`;
+  };
+  const pushResult = await publishPortfolioProject(portfolioProject({ name: "New" }), root, new Date("2026-07-21"), pushFailure);
+  assert.equal(pushResult.committed, true);
+  assert.match(pushResult.error, /no upstream/i);
+  assert.equal(JSON.parse(fs.readFileSync(filePath, "utf8")).projects[0].name, "New");
 });
 
 test("renderMarkdownPreview supports standard Markdown syntax", () => {

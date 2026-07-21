@@ -168,6 +168,82 @@ export function normalizePortfolioContent(rawContent) {
   return { projects };
 }
 
+export function mergePortfolioProject(content, project) {
+  const projects = [...content.projects];
+  const index = projects.findIndex(({ slug }) => slug === project.slug);
+  if (index === -1) projects.push(project);
+  else projects[index] = project;
+  return { projects };
+}
+
+function portfolioJson(content) {
+  return `${JSON.stringify(content, null, 2)}\n`;
+}
+
+function replaceFileAtomically(filePath, content) {
+  const temporaryPath = `${filePath}.tmp`;
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  try {
+    fs.writeFileSync(temporaryPath, content);
+    fs.renameSync(temporaryPath, filePath);
+  } catch (error) {
+    fs.rmSync(temporaryPath, { force: true });
+    throw error;
+  }
+}
+
+export async function publishPortfolioProject(rawProject, root = process.cwd(), now = new Date(), runner = runCommand) {
+  const project = normalizePortfolioProject(rawProject);
+  const relativeFilePath = path.join("content", "portfolio.json");
+  const canonicalFilePath = path.join(root, relativeFilePath);
+  const previousBytes = fs.existsSync(canonicalFilePath) ? fs.readFileSync(canonicalFilePath) : null;
+  const current = previousBytes
+    ? normalizePortfolioContent(JSON.parse(previousBytes.toString("utf8")))
+    : { projects: [] };
+  const nextBytes = Buffer.from(portfolioJson(mergePortfolioProject(current, project)));
+  const commitMessage = `${now.toISOString().slice(0, 10)} update portfolio - ${project.name}`;
+  const logs = [];
+
+  if (previousBytes?.equals(nextBytes)) {
+    return { ok: true, committed: false, slug: project.slug, filePath: relativeFilePath, commitMessage, logs };
+  }
+
+  const mediaPaths = [...new Set(project.media.map(({ src }) => path.join("public", src.slice(1))))];
+  const stagedPaths = [relativeFilePath, ...mediaPaths];
+  let committed = false;
+
+  try {
+    replaceFileAtomically(canonicalFilePath, nextBytes);
+    for (const [command, args] of [
+      ["npm", ["run", "build"]],
+      ["git", ["add", "--", ...stagedPaths]],
+      ["git", ["commit", "-m", commitMessage]],
+      ["git", ["push"]],
+    ]) {
+      logs.push(await runner(command, args, root));
+      if (command === "git" && args[0] === "commit") committed = true;
+    }
+  } catch (error) {
+    if (!committed) {
+      try {
+        await runner("git", ["restore", "--staged", "--", ...stagedPaths], root);
+      } catch {
+        // The explicit paths may not have been staged yet.
+      }
+      if (previousBytes) replaceFileAtomically(canonicalFilePath, previousBytes);
+      else fs.rmSync(canonicalFilePath, { force: true });
+      fs.rmSync(`${canonicalFilePath}.tmp`, { force: true });
+    }
+
+    const rawMessage = error instanceof CommandError ? error.output : error instanceof Error ? error.message : "portfolio publish failed";
+    const message = rawMessage.replaceAll(root, "repository");
+    logs.push(message);
+    return { ok: false, committed, slug: project.slug, filePath: relativeFilePath, commitMessage, error: message, logs };
+  }
+
+  return { ok: true, committed, slug: project.slug, filePath: relativeFilePath, commitMessage, logs };
+}
+
 export function resolveUniquePostFile(postsDirectory, requestedSlug) {
   const baseSlug = requestedSlug || createSlug("");
   let slug = baseSlug;
