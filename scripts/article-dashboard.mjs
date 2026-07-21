@@ -1447,7 +1447,7 @@ function renderPortfolioDashboard(root) {
           method:"POST", headers:{ "content-type":"application/json" }, body:JSON.stringify(state.project),
         });
         commandLog.textContent = (result.logs || []).join("\\n\\n");
-        state.project.slug = result.slug;
+        if (typeof result.slug === "string" && result.slug) state.project.slug = result.slug;
         if (result.committed) {
           const portfolio = await requestJson("/api/portfolio");
           state.projects = portfolio.projects;

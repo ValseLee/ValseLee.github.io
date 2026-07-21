@@ -444,10 +444,12 @@ test("portfolio period controls retain their browser behavior", async (t) => {
     } else if (url === "/api/portfolio/publish") {
       publishCount += 1;
       const submitted = JSON.parse(options.body);
-      canonicalProject = { ...submitted, slug: submitted.slug || "stable-project" };
+      if (publishCount <= 2) canonicalProject = { ...submitted, slug: submitted.slug || "stable-project" };
       result = publishCount === 1
         ? { ok: true, committed: true, slug: canonicalProject.slug, logs: [] }
-        : { ok: false, committed: true, slug: canonicalProject.slug, error: "push failed", logs: [] };
+        : publishCount === 2
+          ? { ok: false, committed: true, slug: canonicalProject.slug, error: "push failed", logs: [] }
+          : { ok: false, committed: false, error: "build failed", logs: [] };
     }
     else throw new Error(`Unexpected browser request: ${url}`);
     return { ok: true, status: 200, json: async () => result };
@@ -540,6 +542,14 @@ test("portfolio period controls retain their browser behavior", async (t) => {
   const publishPosts = requests.filter(({ url }) => url === "/api/portfolio/publish");
   assert.equal(JSON.parse(publishPosts[1].options.body).slug, "stable-project");
   assert.equal(requests.filter(({ url }) => url === "/api/portfolio").length, portfolioGetsBeforePublish + 2);
+
+  elements.get("#portfolio-form").dispatch("submit");
+  await settle();
+  name.value = "Retry after failed publish";
+  name.dispatch("input");
+  elements.get("#portfolio-form").dispatch("submit");
+  await settle();
+  assert.equal(JSON.parse(requests.filter(({ url }) => url === "/api/portfolio/publish").at(-1).options.body).slug, "stable-project");
 });
 
 test("portfolio mode stores and serves MP4 media and rejects cross-origin POST", async (t) => {
@@ -619,6 +629,30 @@ test("portfolio endpoints reject invalid preview Markdown and oversized media be
   assert.equal(oversized.status, 413);
   assert.match(oversized.body.error, /50 MiB/i);
   assert.equal(fs.existsSync(path.join(root, "public", "portfolio", "too-large.mp4")), false);
+
+  const streamed = await new Promise((resolve, reject) => {
+    const request = http.request(new URL("/api/portfolio/media", origin), {
+      method: "POST",
+      headers: {
+        Origin: origin,
+        Connection: "close",
+        "content-type": "video/mp4",
+        "x-file-name": "chunked-too-large.mp4",
+      },
+    }, (response) => {
+      const chunks = [];
+      response.on("data", (chunk) => chunks.push(chunk));
+      response.on("end", () => resolve({ status: response.statusCode, body: JSON.parse(Buffer.concat(chunks)) }));
+    });
+    request.on("error", reject);
+    const chunk = Buffer.alloc(1024 * 1024);
+    for (let index = 0; index < 51; index += 1) request.write(chunk);
+    request.end();
+  });
+
+  assert.equal(streamed.status, 413);
+  assert.match(streamed.body.error, /50 MiB/i);
+  assert.equal(fs.existsSync(path.join(root, "public", "portfolio", "chunked-too-large.mp4")), false);
 });
 
 test("renderMarkdownPreview supports standard Markdown syntax", () => {
