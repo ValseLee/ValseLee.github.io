@@ -15,13 +15,9 @@ export default function Home() {
   return (
     <>
       <section className="hero-grid" aria-labelledby="home-title">
-        <p className="eyebrow">
-          {site.identity.name} · {site.identity.role}
-        </p>
         <h1 id="home-title" className="display-title">
           {site.identity.title}
         </h1>
-        <p className="hero-intro">{site.identity.intro}</p>
       </section>
 
       <section id="about" className="section-grid">
@@ -95,9 +91,11 @@ export default function Home() {
         <div className="section-content experience-list">
           {site.experience.map((item) => (
             <article key={`${item.period}-${item.organization}`}>
-              <p className="eyebrow">{item.period}</p>
-              <h2>{item.organization}</h2>
-              <h3>{item.role}</h3>
+              <div>
+                <h2>{item.organization}</h2>
+                <h3>{item.role}</h3>
+                <p className="eyebrow">{item.period}</p>
+              </div>
               <p>{item.description}</p>
             </article>
           ))}

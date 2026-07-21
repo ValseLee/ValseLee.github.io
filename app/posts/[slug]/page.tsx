@@ -41,7 +41,7 @@ export default async function PostPage({ params }: PostPageProps) {
   });
 
   return (
-    <article className="py-12">
+    <article className="w-full max-w-[75vw] mx-auto py-12">
       <header className="mb-12">
         <p className="text-subtext text-sm mb-2">
           {formattedDate} · {post.frontmatter.category}

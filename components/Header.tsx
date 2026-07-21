@@ -18,7 +18,7 @@ export default function Header() {
   return (
     <header className="site-header">
       <Link href="/" className="site-mark" aria-label="Home">
-        VL
+        🧩
       </Link>
       <nav aria-label="Primary navigation">
         <ol className="site-nav">

@@ -34,6 +34,7 @@ a,
 button,
 h3,
 h4,
+li,
 p {
   text-shadow: var(--ink-shadow);
 }
@@ -96,20 +97,19 @@ a {
 }
 
 .display-title {
-  max-width: 12ch;
+  max-width: 16ch;
   margin: 0;
   font-size: clamp(4rem, 10.5vw, 10.5rem);
   font-weight: 600;
-  line-height: 0.78;
+  line-height: 0.9;
   letter-spacing: -0.075em;
 }
 
 .hero-grid {
   display: grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-template-columns: repeat(12, minmax(12, 1fr));
   gap: 28px;
   min-height: min(760px, calc(100vh - 120px));
-  padding: clamp(48px, 8vw, 112px) 0 72px;
 }
 
 .hero-grid > .eyebrow {
@@ -119,16 +119,6 @@ a {
 .hero-grid > .display-title {
   grid-column: 1 / -1;
   align-self: center;
-}
-
-.hero-intro {
-  grid-column: 8 / -1;
-  align-self: end;
-  max-width: 46ch;
-  margin: 0;
-  color: var(--subtext);
-  font-size: clamp(1rem, 1.5vw, 1.35rem);
-  line-height: 1.45;
 }
 
 .section-grid {
@@ -159,12 +149,13 @@ a {
 
 .section-content h2 {
   margin: 0 0 24px;
-  font-size: clamp(1.8rem, 3.2vw, 3.4rem);
+  font-size: clamp(1.8rem, 3.2vw, 1.8rem);
   line-height: 1;
+  text-shadow: var(--ink-shadow);
 }
 
 .section-content h3 {
-  margin: 0 0 16px;
+  margin: 0 0 8px;
   font-size: 1.1rem;
 }
 
@@ -260,8 +251,8 @@ a {
 
 .experience-list article {
   display: grid;
-  grid-template-columns: 1fr 2fr 2fr;
-  gap: 24px;
+  grid-template-columns: 2fr 4fr;
+  gap: 32px;
   padding: 0 0 40px;
 }
 
@@ -286,7 +277,7 @@ a {
 }
 
 .contact-link {
-  font-size: clamp(1.5rem, 4vw, 4.5rem);
+  font-size: clamp(1.2rem, 4vw, 1.7rem);
   font-weight: 500;
   letter-spacing: -0.055em;
   overflow-wrap: anywhere;
@@ -349,7 +340,8 @@ textarea:focus-visible {
 
 /* MDX Content Styles */
 .prose {
-  max-width: 65ch;
+  max-width: 75vw;
+  margin-inline: auto;
   color: var(--foreground);
 }
 
@@ -499,6 +491,10 @@ textarea:focus-visible {
   .experience-list article {
     grid-template-columns: 1fr;
     gap: 4px;
+  }
+
+  .section-content experience-list .eyebrow {
+    margin: 0 0 0 0;
   }
 
   .contact-grid > p {
