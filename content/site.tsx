@@ -45,10 +45,10 @@ const site = {
       role: "iOS Developer / Subscription OKR Lead",
       description: (
         <>
-          - 쑥쑥찰칵 구독 정책·상품 기획
+          - 쑥쑥찰칵 고화질 영상 업로드 구독 정책·상품 기획
           <br />- US, JP Localization 기반 작업
           <br />- 2024년 5월 대비 2025년 5월 MAU 20% 이상 향상
-          <br />- 광고 eCPM 2배 이상 개선
+          <br />- Advertisement Banner render delay 2배 이상 개선
         </>
       ),
     },
