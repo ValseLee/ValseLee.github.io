@@ -2,6 +2,10 @@
 
 Repo-local guidance lives in `.codex/guidance/`. Read this file before repository work, apply the quick reference, then load only the rule files matched by the request and touched surface.
 
+## Repository Task Bootstrap
+
+- When `HERDR_ENV=1`, load `.codex/guidance/worktree-dispatch.md` before planning, editing, reviewing, or testing any repository task.
+
 ## Quick Reference (Always Apply)
 
 - **Architecture:** Preserve `app/`, `components/`, `lib/`, `content/`, and `scripts/` ownership. Colocate first; add a layer only for a real second consumer or distinct lifecycle.
