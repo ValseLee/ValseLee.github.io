@@ -1149,6 +1149,21 @@ export function createServer(root) {
       return;
     }
 
+    if (request.method === "GET" && url.pathname.startsWith("/images/")) {
+      try {
+        const fileName = decodeURIComponent(url.pathname.slice("/images/".length));
+        const extension = path.extname(fileName).toLowerCase();
+        if (fileName === path.basename(fileName) && !fileName.includes("\\") && IMAGE_TYPES.has(extension)) {
+          const content = fs.readFileSync(path.join(root, "public", "images", fileName));
+          response.writeHead(200, { "content-type": IMAGE_TYPES.get(extension) });
+          response.end(content);
+          return;
+        }
+      } catch {
+        // Invalid and missing image paths use the shared 404 response.
+      }
+    }
+
     if (request.method === "GET" && url.pathname === "/favicon.ico") {
       response.writeHead(204);
       response.end();

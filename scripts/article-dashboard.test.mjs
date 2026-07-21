@@ -310,6 +310,26 @@ test("POST /api/images stores an image and returns its public path", async () =>
   }
 });
 
+test("GET /images serves uploaded image previews", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "article-dashboard-preview-image-"));
+  const imagesDirectory = path.join(root, "public", "images");
+  const image = Buffer.from("preview");
+  fs.mkdirSync(imagesDirectory, { recursive: true });
+  fs.writeFileSync(path.join(imagesDirectory, "미리보기.png"), image);
+  const server = createServer(root);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+
+  try {
+    const { port } = server.address();
+    const response = await fetch(`http://127.0.0.1:${port}/images/${encodeURIComponent("미리보기.png")}`);
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("content-type"), "image/png");
+    assert.deepEqual(Buffer.from(await response.arrayBuffer()), image);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
 
 test("saveDraft writes an ignored local draft without committing", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "article-dashboard-root-"));
