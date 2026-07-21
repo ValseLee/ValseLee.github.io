@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
@@ -214,11 +215,18 @@ export async function publishPortfolioProject(rawProject, root = process.cwd(), 
   let committed = false;
 
   try {
+    await runner("git", ["diff", "--cached", "--quiet", "--", ...stagedPaths], root);
+  } catch {
+    const error = "staged portfolio changes must be committed or unstaged before publishing";
+    return { ok: false, committed, slug: project.slug, filePath: relativeFilePath, commitMessage, error, logs: [error] };
+  }
+
+  try {
     replaceFileAtomically(canonicalFilePath, nextBytes);
     for (const [command, args] of [
       ["npm", ["run", "build"]],
       ["git", ["add", "--", ...stagedPaths]],
-      ["git", ["commit", "-m", commitMessage]],
+      ["git", ["commit", "--only", "-m", commitMessage, "--", ...stagedPaths]],
       ["git", ["push"]],
     ]) {
       logs.push(await runner(command, args, root));
@@ -323,7 +331,13 @@ export function savePortfolioMedia({ fileName, contentType, content }, root = pr
   const requestedName = `${originalStem ? createSlug(originalStem) : "media"}${extension}`;
   fs.mkdirSync(portfolioDirectory, { recursive: true });
   const target = resolveUniqueImageFile(portfolioDirectory, requestedName);
-  fs.writeFileSync(target.filePath, content, { flag: "wx" });
+  const temporaryPath = path.join(portfolioDirectory, `.${target.fileName}.${randomUUID()}.tmp`);
+  try {
+    fs.writeFileSync(temporaryPath, content, { flag: "wx" });
+    fs.linkSync(temporaryPath, target.filePath);
+  } finally {
+    fs.rmSync(temporaryPath, { force: true });
+  }
 
   return {
     kind,
@@ -364,11 +378,19 @@ export function loadPortfolioDraft(fileName, root = process.cwd()) {
   const safeFileName = normalizePortfolioDraftFileName(fileName);
   const filePath = path.join(root, PORTFOLIO_DRAFTS_DIRECTORY, safeFileName);
   if (!fs.existsSync(filePath)) throw new Error(`draft ${safeFileName} was not found`);
+  let source;
   try {
-    return normalizePortfolioProject(JSON.parse(fs.readFileSync(filePath, "utf8")));
+    source = fs.readFileSync(filePath, "utf8");
+  } catch {
+    throw new Error(`draft ${safeFileName} could not be read`);
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(source);
   } catch {
     throw new Error(`draft ${safeFileName} is malformed or invalid`);
   }
+  return normalizePortfolioProject(parsed);
 }
 
 export function listPortfolioDrafts(root = process.cwd()) {
@@ -1151,7 +1173,7 @@ function renderPortfolioDashboard(root) {
     const status = document.querySelector("#status");
     const commandLog = document.querySelector("#command-log");
     const emptyProject = () => ({ slug:"", name:"", period:"", descriptionMarkdown:"", media:[] });
-    const state = { project:emptyProject(), projects:[], dirty:false, activeAction:null, previewRequest:0 };
+    const state = { project:emptyProject(), projects:[], dirty:false, previewRequest:0 };
     const canonicalPeriod = /^(\\d{4}\\.\\d{2}\\.\\d{2}) — (Present|\\d{4}\\.\\d{2}\\.\\d{2})$/;
     const toIsoDate = (value) => value.replaceAll(".", "-");
     const toPeriodDate = (value) => value.replaceAll("-", ".");
@@ -1358,11 +1380,10 @@ function renderPortfolioDashboard(root) {
     }
 
     async function withAction(control, action) {
-      state.activeAction = control.id;
       control.disabled = true;
       try { return await action(); }
       catch (error) { setStatus(error.message, "error"); }
-      finally { state.activeAction = null; control.disabled = false; }
+      finally { control.disabled = false; }
     }
 
     for (const [input, field] of [[nameInput,"name"],[descriptionInput,"descriptionMarkdown"]]) {
@@ -1410,10 +1431,10 @@ function renderPortfolioDashboard(root) {
     saveDraftButton.addEventListener("click", () => {
       if (!form.reportValidity()) return;
       withAction(saveDraftButton, async () => {
-        await requestJson("/api/portfolio/draft", {
+        const result = await requestJson("/api/portfolio/draft", {
           method:"POST", headers:{ "content-type":"application/json" }, body:JSON.stringify(state.project),
         });
-        state.dirty = false;
+        setProject(result.project);
         await refreshDrafts();
         setStatus("Draft saved", "ok");
       });
@@ -1426,7 +1447,15 @@ function renderPortfolioDashboard(root) {
           method:"POST", headers:{ "content-type":"application/json" }, body:JSON.stringify(state.project),
         });
         commandLog.textContent = (result.logs || []).join("\\n\\n");
-        state.dirty = !result.ok && !result.committed;
+        state.project.slug = result.slug;
+        if (result.committed) {
+          const portfolio = await requestJson("/api/portfolio");
+          state.projects = portfolio.projects;
+          setProject(state.projects.find((project) => project.slug === result.slug) || state.project);
+        } else {
+          state.dirty = !result.ok;
+          renderProjectOptions();
+        }
         setStatus(result.ok
           ? (result.committed ? "Committed and pushed" : "No changes")
           : (result.committed ? "Committed; push failed: " : "Publish failed: ") + result.error,
@@ -1485,6 +1514,13 @@ async function readPortfolioMediaBody(request) {
   const chunks = [];
   let size = 0;
   const maxBytes = 50 * 1024 * 1024;
+  const contentLength = Number(request.headers["content-length"]);
+
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+    const error = new Error("portfolio media request exceeds 50 MiB");
+    error.statusCode = 413;
+    throw error;
+  }
 
   for await (const chunk of request) {
     size += chunk.length;

@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import vm from "node:vm";
@@ -95,6 +97,27 @@ test("savePortfolioMedia stores MP4 uploads and suffixes collisions", (t) => {
     src: "/portfolio/demo-reel.mp4",
   });
   assert.equal(savePortfolioMedia(upload, root).fileName, "demo-reel-2.mp4");
+  assert.deepEqual(fs.readdirSync(path.join(root, "public", "portfolio")).sort(), ["demo-reel-2.mp4", "demo-reel.mp4"]);
+});
+
+test("savePortfolioMedia removes partial temporary files and preserves collision targets on failure", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "portfolio-media-failure-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const upload = { fileName: "Demo.mp4", contentType: "video/mp4", content: Buffer.from("replacement") };
+  savePortfolioMedia({ ...upload, content: Buffer.from("original") }, root);
+  const directory = path.join(root, "public", "portfolio");
+  const writeFileSync = fs.writeFileSync.bind(fs);
+  t.mock.method(fs, "writeFileSync", (filePath, content, options) => {
+    if (path.dirname(filePath) === directory) {
+      writeFileSync(filePath, content.subarray(0, 1), options);
+      throw new Error("simulated write failure");
+    }
+    return writeFileSync(filePath, content, options);
+  });
+
+  assert.throws(() => savePortfolioMedia(upload, root), /simulated write failure/);
+  assert.equal(fs.readFileSync(path.join(directory, "demo.mp4"), "utf8"), "original");
+  assert.deepEqual(fs.readdirSync(directory), ["demo.mp4"]);
 });
 
 test("validatePortfolioMediaUpload accepts supported extension and MIME pairs", () => {
@@ -160,7 +183,19 @@ test("portfolio drafts round-trip and failed replacement preserves the previous 
 
   fs.writeFileSync(path.join(draftsDirectory, "broken.json"), "{");
   assert.equal(listPortfolioDrafts(root).some(({ fileName, name }) => fileName === "broken.json" && name === "broken"), true);
-  assert.throws(() => loadPortfolioDraft("broken.json", root), /malformed or invalid/i);
+  assert.throws(() => loadPortfolioDraft("broken.json", root), (error) => {
+    assert.match(error.message, /malformed or invalid/i);
+    assert.doesNotMatch(error.message, new RegExp(root));
+    return true;
+  });
+  fs.writeFileSync(path.join(draftsDirectory, "invalid.json"), JSON.stringify({ ...project, period: "" }));
+  assert.throws(() => loadPortfolioDraft("invalid.json", root), /period is required/i);
+  fs.mkdirSync(path.join(draftsDirectory, "unreadable.json"));
+  assert.throws(() => loadPortfolioDraft("unreadable.json", root), (error) => {
+    assert.match(error.message, /could not be read/i);
+    assert.doesNotMatch(error.message, new RegExp(root));
+    return true;
+  });
   assert.throws(() => loadPortfolioDraft("../secret.json", root), /draft file/i);
 });
 
@@ -183,6 +218,10 @@ function createPortfolioRoot(t, content) {
   }
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   return root;
+}
+
+function git(root, args) {
+  return execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
 }
 
 async function startPortfolioServer(t, root) {
@@ -218,11 +257,50 @@ test("publishPortfolioProject updates by slug and stages only canonical JSON and
   assert.equal(result.committed, true);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, "content", "portfolio.json"), "utf8")).projects.map(({ slug }) => slug), ["first", "loutine"]);
   assert.deepEqual(calls.map(({ command, args, cwd }) => [command, args, cwd]), [
+    ["git", ["diff", "--cached", "--quiet", "--", "content/portfolio.json", "public/portfolio/demo.mp4"], root],
     ["npm", ["run", "build"], root],
     ["git", ["add", "--", "content/portfolio.json", "public/portfolio/demo.mp4"], root],
-    ["git", ["commit", "-m", "2026-07-21 update portfolio - Loutine"], root],
+    ["git", ["commit", "--only", "-m", "2026-07-21 update portfolio - Loutine", "--", "content/portfolio.json", "public/portfolio/demo.mp4"], root],
     ["git", ["push"], root],
   ]);
+});
+
+test("publishPortfolioProject commits only portfolio paths and rejects staged overlap", async (t) => {
+  const root = createPortfolioRoot(t, { projects: [portfolioProject({ name: "Old" })] });
+  fs.writeFileSync(path.join(root, "unrelated.txt"), "base\n");
+  git(root, ["init", "-q"]);
+  git(root, ["config", "user.name", "Dashboard Test"]);
+  git(root, ["config", "user.email", "dashboard@example.com"]);
+  git(root, ["add", "."]);
+  git(root, ["commit", "-qm", "base"]);
+  fs.writeFileSync(path.join(root, "unrelated.txt"), "staged user work\n");
+  git(root, ["add", "unrelated.txt"]);
+  const runner = async (command, args, cwd) => {
+    if (command === "npm" || (command === "git" && args[0] === "push")) return `$ ${command} ${args.join(" ")}`;
+    return `$ ${command} ${args.join(" ")}\n${git(cwd, args)}`.trim();
+  };
+
+  const result = await publishPortfolioProject(portfolioProject({ name: "Published" }), root, new Date("2026-07-21"), runner);
+
+  assert.equal(result.ok, true);
+  assert.equal(git(root, ["show", "--format=", "--name-only", "HEAD"]), "content/portfolio.json");
+  assert.equal(git(root, ["diff", "--cached", "--name-only"]), "unrelated.txt");
+  assert.equal(git(root, ["show", "HEAD:unrelated.txt"]), "base");
+
+  const canonicalPath = path.join(root, "content", "portfolio.json");
+  fs.writeFileSync(canonicalPath, `${JSON.stringify({ projects: [portfolioProject({ name: "Staged user edit" })] }, null, 2)}\n`);
+  git(root, ["add", "content/portfolio.json"]);
+  const stagedBytes = fs.readFileSync(canonicalPath);
+  const headBeforeOverlap = git(root, ["rev-parse", "HEAD"]);
+
+  const blocked = await publishPortfolioProject(portfolioProject({ name: "Must not replace" }), root, new Date("2026-07-21"), runner);
+
+  assert.equal(blocked.ok, false);
+  assert.equal(blocked.committed, false);
+  assert.match(blocked.error, /staged.*portfolio/i);
+  assert.equal(git(root, ["rev-parse", "HEAD"]), headBeforeOverlap);
+  assert.deepEqual(fs.readFileSync(canonicalPath), stagedBytes);
+  assert.match(git(root, ["diff", "--cached", "--name-only"]), /content\/portfolio\.json/);
 });
 
 test("publishPortfolioProject returns before commands when canonical bytes are unchanged", async (t) => {
@@ -352,13 +430,25 @@ test("portfolio period controls retain their browser behavior", async (t) => {
   };
   let confirmCalls = 0;
   const requests = [];
+  let canonicalProject = project;
+  let publishCount = 0;
   const browserFetch = async (url, options = {}) => {
     requests.push({ url, options });
     let result;
-    if (url === "/api/portfolio") result = { ok: true, projects: [project] };
+    if (url === "/api/portfolio") result = { ok: true, projects: [canonicalProject] };
     else if (url === "/api/portfolio/drafts") result = { ok: true, drafts: [] };
     else if (url === "/api/portfolio/preview") result = { ok: true, html: "<p>preview</p>" };
-    else if (url === "/api/portfolio/draft" && options.method === "POST") result = { ok: true };
+    else if (url === "/api/portfolio/draft" && options.method === "POST") {
+      const submitted = JSON.parse(options.body);
+      result = { ok: true, project: { ...submitted, slug: submitted.slug || "stable-project" } };
+    } else if (url === "/api/portfolio/publish") {
+      publishCount += 1;
+      const submitted = JSON.parse(options.body);
+      canonicalProject = { ...submitted, slug: submitted.slug || "stable-project" };
+      result = publishCount === 1
+        ? { ok: true, committed: true, slug: canonicalProject.slug, logs: [] }
+        : { ok: false, committed: true, slug: canonicalProject.slug, error: "push failed", logs: [] };
+    }
     else throw new Error(`Unexpected browser request: ${url}`);
     return { ok: true, status: 200, json: async () => result };
   };
@@ -418,6 +508,38 @@ test("portfolio period controls retain their browser behavior", async (t) => {
   assert.equal(validityChecks, 2);
   assert.equal(draftPosts().length, 1);
   assert.equal(JSON.parse(draftPosts()[0].options.body).period, "2026.02.03 — Present");
+
+  elements.get("#new-project").dispatch("click");
+  const name = elements.get("#name");
+  const description = elements.get("#description-markdown");
+  name.value = "First name";
+  name.dispatch("input");
+  description.value = "Description";
+  description.dispatch("input");
+  start.value = "2026-03-04";
+  start.dispatch("input");
+  present.checked = true;
+  present.dispatch("change");
+  elements.get("#save-draft").dispatch("click");
+  await settle();
+
+  name.value = "Renamed after save";
+  name.dispatch("input");
+  elements.get("#save-draft").dispatch("click");
+  await settle();
+  assert.equal(JSON.parse(draftPosts().at(-1).options.body).slug, "stable-project");
+
+  const portfolioGetsBeforePublish = requests.filter(({ url }) => url === "/api/portfolio").length;
+  elements.get("#portfolio-form").dispatch("submit");
+  await settle();
+  name.value = "Renamed after publish";
+  name.dispatch("input");
+  elements.get("#portfolio-form").dispatch("submit");
+  await settle();
+
+  const publishPosts = requests.filter(({ url }) => url === "/api/portfolio/publish");
+  assert.equal(JSON.parse(publishPosts[1].options.body).slug, "stable-project");
+  assert.equal(requests.filter(({ url }) => url === "/api/portfolio").length, portfolioGetsBeforePublish + 2);
 });
 
 test("portfolio mode stores and serves MP4 media and rejects cross-origin POST", async (t) => {
@@ -450,6 +572,53 @@ test("portfolio mode stores and serves MP4 media and rejects cross-origin POST",
   });
   assert.equal(rejected.status, 403);
   assert.equal(fs.existsSync(path.join(root, "public", "portfolio", "blocked.mp4")), false);
+});
+
+test("portfolio endpoints reject invalid preview Markdown and oversized media before buffering", async (t) => {
+  const root = createPortfolioRoot(t, { projects: [] });
+  const origin = await startPortfolioServer(t, root);
+
+  for (const [markdown, error] of [[null, /must be a string/i], ["x".repeat(50_001), /at most 50000/i]]) {
+    const response = await fetch(`${origin}/api/portfolio/preview`, {
+      method: "POST",
+      headers: { Origin: origin, "content-type": "application/json" },
+      body: JSON.stringify({ markdown }),
+    });
+    assert.equal(response.status, 400);
+    assert.match((await response.json()).error, error);
+  }
+
+  const oversized = await new Promise((resolve, reject) => {
+    const url = new URL("/api/portfolio/media", origin);
+    const request = http.request(url, {
+      method: "POST",
+      headers: {
+        Origin: origin,
+        Connection: "close",
+        "content-type": "video/mp4",
+        "x-file-name": "too-large.mp4",
+        "content-length": String(50 * 1024 * 1024 + 1),
+      },
+    }, (response) => {
+      const chunks = [];
+      response.on("data", (chunk) => chunks.push(chunk));
+      response.on("end", () => {
+        request.destroy();
+        resolve({ status: response.statusCode, body: JSON.parse(Buffer.concat(chunks)) });
+      });
+    });
+    const timeout = setTimeout(() => {
+      request.destroy();
+      reject(new Error("oversized media request was not rejected from Content-Length"));
+    }, 1_000);
+    request.on("response", () => clearTimeout(timeout));
+    request.on("error", reject);
+    request.flushHeaders();
+  });
+
+  assert.equal(oversized.status, 413);
+  assert.match(oversized.body.error, /50 MiB/i);
+  assert.equal(fs.existsSync(path.join(root, "public", "portfolio", "too-large.mp4")), false);
 });
 
 test("renderMarkdownPreview supports standard Markdown syntax", () => {
