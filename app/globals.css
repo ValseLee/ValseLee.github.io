@@ -35,6 +35,7 @@ button,
 h3,
 h4,
 li,
+.two-column-copy li,
 p {
   text-shadow: var(--ink-shadow);
 }
