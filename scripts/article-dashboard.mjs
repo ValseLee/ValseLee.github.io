@@ -1080,6 +1080,7 @@ function renderPortfolioDashboard(root) {
     input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible { outline:2px solid #fff; outline-offset:2px; }
     .controls,.actions,.media-actions { display:flex; flex-wrap:wrap; gap:10px; align-items:end; }
     .controls .field { flex:1; margin:0; }
+    .checkbox input { width:auto; }
     button { border:1px solid var(--border); border-radius:999px; background:#fff; color:#050505; padding:10px 15px; font-weight:650; cursor:pointer; }
     button.secondary { background:transparent; color:var(--foreground); }
     button:disabled { opacity:.5; cursor:not-allowed; }
@@ -1106,7 +1107,14 @@ function renderPortfolioDashboard(root) {
           <button id="new-project" type="button" class="secondary">New Project</button>
         </div>
         <div class="field"><label for="name">Project name</label><input id="name" maxlength="120" required /></div>
-        <div class="field"><label for="period">Period</label><input id="period" maxlength="80" required /></div>
+        <div class="field">
+          <label>Period</label>
+          <div class="controls">
+            <div class="field"><label for="period-start">Start date</label><input id="period-start" type="date" required /></div>
+            <div class="field"><label for="period-end">End date</label><input id="period-end" type="date" required /></div>
+            <label class="checkbox"><input id="period-present" type="checkbox" /> Present</label>
+          </div>
+        </div>
         <div class="field"><label for="description-markdown">Markdown description</label><textarea id="description-markdown" maxlength="50000" required></textarea></div>
         <div class="field"><label for="media-input">Images or MP4 files</label><input id="media-input" type="file" multiple accept="image/*,video/mp4" /></div>
         <ol id="media-rows"></ol>
@@ -1129,7 +1137,9 @@ function renderPortfolioDashboard(root) {
     const projectSelect = document.querySelector("#project-select");
     const newProjectButton = document.querySelector("#new-project");
     const nameInput = document.querySelector("#name");
-    const periodInput = document.querySelector("#period");
+    const periodStartInput = document.querySelector("#period-start");
+    const periodEndInput = document.querySelector("#period-end");
+    const periodPresentInput = document.querySelector("#period-present");
     const descriptionInput = document.querySelector("#description-markdown");
     const mediaInput = document.querySelector("#media-input");
     const mediaRows = document.querySelector("#media-rows");
@@ -1142,6 +1152,9 @@ function renderPortfolioDashboard(root) {
     const commandLog = document.querySelector("#command-log");
     const emptyProject = () => ({ slug:"", name:"", period:"", descriptionMarkdown:"", media:[] });
     const state = { project:emptyProject(), projects:[], dirty:false, activeAction:null, previewRequest:0 };
+    const canonicalPeriod = /^(\\d{4}\\.\\d{2}\\.\\d{2}) — (Present|\\d{4}\\.\\d{2}\\.\\d{2})$/;
+    const toIsoDate = (value) => value.replaceAll(".", "-");
+    const toPeriodDate = (value) => value.replaceAll("-", ".");
 
     async function requestJson(url, options) {
       const response = await fetch(url, options);
@@ -1159,15 +1172,38 @@ function renderPortfolioDashboard(root) {
       return !state.dirty || confirm("Discard unsaved portfolio changes?");
     }
 
+    function syncPeriodFields() {
+      const match = canonicalPeriod.exec(state.project.period);
+      periodStartInput.value = match ? toIsoDate(match[1]) : "";
+      periodPresentInput.checked = match?.[2] === "Present";
+      periodEndInput.value = match && !periodPresentInput.checked ? toIsoDate(match[2]) : "";
+      periodEndInput.disabled = periodPresentInput.checked;
+      periodEndInput.required = !periodPresentInput.checked;
+      periodEndInput.min = periodStartInput.value;
+    }
+
     function syncFields() {
       nameInput.value = state.project.name;
-      periodInput.value = state.project.period;
+      syncPeriodFields();
       descriptionInput.value = state.project.descriptionMarkdown;
     }
 
     function markDirty() {
       state.dirty = true;
       schedulePreview();
+    }
+
+    function updatePeriod() {
+      periodEndInput.disabled = periodPresentInput.checked;
+      periodEndInput.required = !periodPresentInput.checked;
+      periodEndInput.min = periodStartInput.value;
+      if (periodPresentInput.checked) periodEndInput.value = "";
+      const start = periodStartInput.value;
+      const end = periodEndInput.value;
+      state.project.period = start && (periodPresentInput.checked || (end && end >= start))
+        ? toPeriodDate(start) + " — " + (periodPresentInput.checked ? "Present" : toPeriodDate(end))
+        : "";
+      markDirty();
     }
 
     function moveMedia(index, offset) {
@@ -1329,9 +1365,12 @@ function renderPortfolioDashboard(root) {
       finally { state.activeAction = null; control.disabled = false; }
     }
 
-    for (const [input, field] of [[nameInput,"name"],[periodInput,"period"],[descriptionInput,"descriptionMarkdown"]]) {
+    for (const [input, field] of [[nameInput,"name"],[descriptionInput,"descriptionMarkdown"]]) {
       input.addEventListener("input", () => { state.project[field] = input.value; markDirty(); });
     }
+    periodStartInput.addEventListener("input", updatePeriod);
+    periodEndInput.addEventListener("input", updatePeriod);
+    periodPresentInput.addEventListener("change", updatePeriod);
 
     projectSelect.addEventListener("change", () => {
       const project = state.projects.find((item) => item.slug === projectSelect.value);
@@ -1368,14 +1407,17 @@ function renderPortfolioDashboard(root) {
       setStatus("Draft loaded", "ok");
     }));
 
-    saveDraftButton.addEventListener("click", () => withAction(saveDraftButton, async () => {
-      await requestJson("/api/portfolio/draft", {
-        method:"POST", headers:{ "content-type":"application/json" }, body:JSON.stringify(state.project),
+    saveDraftButton.addEventListener("click", () => {
+      if (!form.reportValidity()) return;
+      withAction(saveDraftButton, async () => {
+        await requestJson("/api/portfolio/draft", {
+          method:"POST", headers:{ "content-type":"application/json" }, body:JSON.stringify(state.project),
+        });
+        state.dirty = false;
+        await refreshDrafts();
+        setStatus("Draft saved", "ok");
       });
-      state.dirty = false;
-      await refreshDrafts();
-      setStatus("Draft saved", "ok");
-    }));
+    });
 
     form.addEventListener("submit", (event) => {
       event.preventDefault();

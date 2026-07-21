@@ -284,9 +284,12 @@ test("portfolio mode serves the local dashboard and portfolio JSON APIs", async 
   const dashboard = await fetch(`${origin}/`);
   const html = await dashboard.text();
   assert.equal(dashboard.status, 200);
-  for (const id of ["project-select", "new-project", "name", "period", "description-markdown", "media-input", "media-rows", "draft-select", "load-draft", "save-draft", "publish", "preview", "status", "command-log"]) {
+  for (const id of ["project-select", "new-project", "name", "period-start", "period-end", "period-present", "description-markdown", "media-input", "media-rows", "draft-select", "load-draft", "save-draft", "publish", "preview", "status", "command-log"]) {
     assert.match(html, new RegExp(`id=["']${id}["']`));
   }
+  assert.match(html, /<input id="period-start" type="date" required/);
+  assert.match(html, /<input id="period-end" type="date" required/);
+  assert.match(html, /<input id="period-present" type="checkbox"/);
   assert.doesNotMatch(html, /id="article-form"/);
   const browserScript = html.match(/<script>([\s\S]*?)<\/script>/);
   assert.ok(browserScript);
