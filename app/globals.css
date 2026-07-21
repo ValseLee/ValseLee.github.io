@@ -6,6 +6,7 @@
   --subtext: #55534f;
   --accent: #0a0a0a;
   --border: #b7b4ad;
+  --ink-shadow: 0 0 1px rgba(0, 0, 0, 0.1), 1px 1px 3px rgba(0, 0, 0, 0.3), -1px -1px 2px rgba(0, 0, 0, 0.1);
 }
 
 @theme inline {
@@ -27,6 +28,14 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-figtree), sans-serif;
+}
+
+a,
+button,
+h3,
+h4,
+p {
+  text-shadow: var(--ink-shadow);
 }
 
 a {
@@ -427,6 +436,12 @@ textarea:focus-visible {
 }
 
 .prose th { color: var(--foreground); font-weight: 600; }
+
+@media (max-width: 860px) {
+  :root {
+    --ink-shadow: 0 0 0.25px rgba(0, 0, 0, 0.1), 0.25px 0.25px 0.75px rgba(0, 0, 0, 0.3), -0.25px -0.25px 0.5px rgba(0, 0, 0, 0.1);
+  }
+}
 
 @media (max-width: 760px) {
   .site-header {
