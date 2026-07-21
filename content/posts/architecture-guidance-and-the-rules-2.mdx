@@ -1,0 +1,126 @@
+---
+title: "Architecture, Guidance, and the Rules (2)"
+date: "2026-07-21"
+category: "engineering"
+tags: ["Guidance", "index.md"]
+links: []
+description: "Guidance와 index.md의 역할"
+---
+
+## 서론 - Guidance의 역할
+
+저번 게시글에서 나는 Architecture와 Harness의 관계를 정리하고 Guidance를 다음 주제로 남겼다. 특히 route 문서로 예고한 `index.md`를 중심으로, 이번 글에서는 내가 구성한 Guidance 체계와 그 역할을 조금 더 깊게 다루려 한다.
+
+이 글에서 Guidance는 프로젝트 전반에 걸쳐 LLM Agent가 따라야 할 지침 문서를 뜻한다. 제품마다 Rules라는 이름이 서로 다른 기능을 지칭하므로, 혼동을 피하기 위해 이하에서는 Guidance라는 용어만 사용한다. Claude의 `.claude/rules/`는 경로별 지침이고, Codex의 `.rules`는 샌드박스 밖 명령 실행 정책이다. 이름은 같지만 두 기능의 역할은 분명히 다르다.
+
+## 1. Guidance의 가능성
+
+> 이 글의 ‘Guidance’는 내가 `.codex/guidance/`에 구성한 프로젝트 지침 체계를 뜻한다. 이 경로는 Codex나 Claude가 자동으로 인식하는 표준 디렉터리가 아님을 미리 밝힌다.
+
+Guidance는 상시 적용할 프로젝트 기준이고, Skill은 특정 작업의 절차이며, Memory는 경험에서 축적된 맥락이다. Hook은 이들과 달리 특정 조건에서 동작을 검사하거나 차단하는 실행 장치다.
+
+Guidance 문서는 프로젝트에서 유지해야 할 lint, convention, 로컬 규칙을 다룬다. 의존성 관리, Navigation(Route) 구성, DB query 작성 방식, 도메인 용어와 의미 규칙처럼 프로젝트에 특화된 기술적 기준도 담을 수 있다.
+
+내 Codex 구성에서는 `AGENTS.md`를 `.codex/guidance/` 문서로 진입하기 위한 시작점으로 사용한다. Claude Code에서 같은 구성을 사용하려면 `CLAUDE.md`에서 `AGENTS.md`를 import하는 과정이 필요하다.
+
+Guidance의 장점은 Agent가 일관되게 작업하도록 하는 데서 끝나지 않는다. 그 결과가 어떤 형태를 지녀야 하는지도 보여준다.
+
+예를 들어 View와 ViewModel 구현은 서로 다른 파일에 두되, ViewModel은 View의 nested type으로 선언한다는 규칙을 적을 수 있다. 이런 규칙은 코드가 어느 위치에서 어떤 형태로 구현되어야 하는지 알려준다.
+
+유지보수 기간이 길어질수록 Guidance의 가치는 커진다. Review와 test도 같은 Guidance를 기준으로 수행할 수 있기 때문이다. Guidance는 Agent만을 위한 지시문이 아니라 프로젝트가 공유하는 기술적 기준이 된다.
+
+## 2. index.md
+
+세션에는 작업에 필요한 정보가 선명하게 드러나는 편이 좋다. 나는 `index.md`를 만들어 요청의 키워드, 변경 경로, import와 구현 영역에 따라 Agent가 필요한 Guidance를 선택해 읽도록 구성했다.
+
+내가 확인한 Codex 세션에서는 Hook 없이 `AGENTS.md`에 이 절차를 적어두는 것만으로도 필요한 Guidance가 대부분 빠짐없이 로드되었다. Claude Code에서는 Stop hook을 더해 검토 절차가 실행됐는지 확인할 수도 있다.
+
+나의 `index.md`는 대략 아래 형태를 갖추고 있다.
+
+```text
+index.md
+├── Authority and Lifecycle
+├── Quick Reference (Always Apply)
+├── Trigger -> Rule File
+└── How to Use
+```
+
+각 섹션은 LLM Agent가 어떤 규칙을 언제 적용할지 설명한다. 루트 문서의 우선순위를 정리하고, 요청의 표현과 변경 영역을 적절한 세부 규칙으로 이어준다. 개발 도구, 프레임워크, Agent Harness 같은 외부 인프라와 연결하는 것도 이 문서의 역할이다.
+
+1. Authority and Lifecycle
+   - AGENTS.md → CONTEXT.md와 ADR → 세부 Guidance → 현재 코드 → 과거 문서 순으로 충돌 시 우선순위를 정한다.
+2. Quick Reference
+   - TDD, 아키텍처, 커밋, Xcode 검증처럼 모든 작업에 적용할 핵심 원칙을 요약한다.
+3. Trigger → Rule File
+   - SwiftUI, SwiftData, navigation, localization 같은 작업 키워드를 세부 규칙 파일에 연결한다. 필요한 문서만 선택적으로 읽어 컨텍스트 낭비를 줄인다.
+4. How to Use
+   - `RTK.md`와 인덱스를 읽고, 작업에 맞는 규칙을 선택해 충돌을 해결한 뒤 `verify.md`로 완료 여부를 검증하는 실행 순서를 정의한다.
+
+`AGENTS.md`도 Guidance 문서를 뒷받침해야 한다. Guidance Bootstrap 섹션에서 이 프로젝트가 사용하는 규칙의 위치와 적용 순서, 응답 형태를 정의한다.
+
+```text
+AGENTS.md
+├── Guidance Bootstrap
+├── Project Overview
+├── Repository Boundaries
+├── Deployment
+└── Verification Commands
+```
+
+Guidance Bootstrap의 내용은 아래와 같다.
+
+```text
+Repo-local rules live in `.codex/guidance/`.
+For every repository task, read `.codex/guidance/index.md` before planning, editing, reviewing, testing, or finalizing. Apply its Quick Reference, then load only the rule files matched by the request, touched paths, imports, and implementation surface.
+Before completion, always load `.codex/guidance/verify.md`. Plans, handoffs, reviews, and final responses must include:
+"Guidance loaded: index.md, verify.md, <matched files or none>"
+When work is delegated, include the same bootstrap requirement and require the delegate to report the guidance it loaded.
+```
+
+정리하자면 Guidance의 `index.md`는 규칙 모음이라기보다 규칙의 진입점이다. 항상 적용할 원칙과 문서 간 우선순위를 정의하고, 요청과 변경 영역에 따라 필요한 세부 규칙만 불러오도록 안내한다. 이를 통해 Agent는 매번 모든 문서를 읽지 않으면서도 일관된 기준으로 작업하고 검증할 수 있다.
+
+다만 이 구조가 실제로 필요한지는 계속 검토해야 한다. Guidance는 개발 환경과 함께 성장하지만, 코드와 어긋난 채 남으면 오히려 Agent의 판단을 흐린다. 반대로 코드와 Guidance의 일치도가 높다면 Agent는 둘 사이의 괴리를 해석하는 데 쓰는 자원을 줄일 수 있다. 새로운 규칙을 추가하는 일만큼 낡은 규칙을 수정하거나 제거하는 일도 중요하다.
+
+## 3. 실효성에 대해
+
+GPT-5.6과 Claude Fable 5처럼 모델이 강해질수록 Harness를 어디까지 둘 것인지에 대한 질문도 커진다. 그렇다면 Guidance는 모델의 성능이 높아진 뒤에도 유효할까.
+
+Guidance 파일을 불러오는 경로는 Harness 구성의 문제이고, 읽은 내용을 해석하고 준수하는 일은 모델의 문제다. 내 사용 환경에서는 모델이나 추론 강도를 바꿔도 필요한 Guidance를 빠뜨리는 경우가 드물었다. 다만 Guidance 문서에 대한 해석과 실제 지침을 준수하는 정도까지 같다고 단정할 수는 없다.
+
+아래 화면은 한 Codex 세션에서 Agent가 요청의 변경 영역에 맞는 Guidance를 선택해 읽은 사례다.
+
+![Codex가 요청과 관련된 index.md, verify.md, architecture.md, content.md를 읽었다고 보고한 화면](/images/스크린샷-2026-07-21-오후-4-01-43.png)
+
+Guidance를 통해 개발자는 프로젝트에서 지켜야 할 약속을 정하고 Agent에게 전달한다. 그러나 규칙을 엄격하게 적용하는 것만으로는 부족하다. 현실과 규칙이 충돌했다면 그 이유와 예외를 다시 문서에 반영해야 한다.
+
+Guidance의 실효성은 개발자가 프로젝트의 흐름과 약속을 결정하는 주도권을 놓지 않는 데 있다. 그 주도권은 결과에 대한 개발자의 책임을 분명하게 하고, 함께 협업하는 사람들과 같은 기준으로 소통하게 한다.
+
+한편, 잘 작성된 Guidance는 ‘이해가 곧 병목이다’라는 문제에도 하나의 답이 될 수 있다고 생각한다. 여기서 이해는 두 층위로 나뉜다.
+
+첫 번째는 Agent의 이해다. Agent가 구현 전에 개발자의 의도와 프로젝트의 규칙, 코드베이스의 구조와 변경 영역의 제약, 그 이유를 충분히 파악하는 것을 뜻한다. Guidance를 잘 작성하는 것으로 Agent는 개발자와 이 개발자가 속한 팀이 어떤 코드를 지향하는지 파악하고, 하나의 작업 지시를 통해서 어느 방향으로 코드를 수정할 것인지 파악한다.
+
+두 번째는 Agent가 생성한 코드에 대한 개발자의 이해다. 이 두 번째 이해 층위는 많은 실험과 더 깊은 층위의 이해가 필요하지만, 적어도 지금의 내 경험에서 잘 작성된 Guidance는 Agent의 코드를 이해하는 데에 큰 도움이 된다. 코드 생성 속도가 빨라져도 사람이 결과의 근거와 영향을 파악하지 못하면 리뷰와 수정은 여전히 병목으로 남기 마련이다. Guidance와 읽은 문서에 대한 보고는 Agent가 어떤 규칙을 따라 코드를 구성했는지 추적할 기준을 제공한다. 결과가 반복적으로 기대와 어긋난다면 코드뿐 아니라 Guidance가 프로젝트의 실제 규칙을 제대로 표현하는지도 검토할 수 있다.
+
+아래는 내가 Guidance의 효용을 체감한 또 다른 사례다. Domain과 Shared 모듈 사이의 의존성 문제를 Agent가 `architecture.md`를 기준으로 검토했다.
+
+![Agent가 Domain 모듈의 Shared Helper 의존이 아키텍처 규칙을 위반한다고 설명하는 화면](/images/스크린샷-2026-07-19-오후-7-27-52.png)
+
+Agent는 요청이 기존 규칙에서 벗어난다는 사실과 그 이유를 설명하고, 예외를 승인하거나 의존성을 분리하는 선택지를 제안했다. Guidance는 규칙을 무조건 따르게 하기보다 충돌을 드러내고 개발자가 판단할 수 있게 하는 기준으로 작동했다.
+
+Workflow로서의 Harness가 작업의 큰 방향을 잡는다면, Guidance는 개발 단계에서 어떤 약속을 지키고 어떤 예외를 기록할지 결정하도록 돕는다.
+
+## 결론 - Guidance, guidance.
+
+Guidance는 Agent를 더 똑똑하게 만드는 장치가 아니다. 프로젝트가 어떤 구조와 약속을 지켜야 하는지 개발자가 명시하고, Agent가 그 기준으로 판단하도록 만드는 문서다. Architecture가 서비스의 의도를 코드에 담는다면, Guidance는 그 의도를 작업 과정에서 읽고 적용하는 경로를 제공한다.
+
+그렇다고 Guidance가 규칙을 자동으로 강제하거나 좋은 결과를 보장하는 것은 아니다. 코드와 어긋난 규칙은 오히려 판단을 흐리고, 너무 많은 규칙은 필요한 정보를 가린다. 따라서 규칙의 적용은 엄격하되, 규칙 자체는 코드와 팀의 변화에 맞춰 수정하고 버릴 수 있어야 한다.
+
+결국 Guidance의 가치는 문서의 양이 아니라 **개발자가 프로젝트의 기준과 그 이유를 계속 소유하는 데 있다**. `index.md`는 그 기준을 모두 담는 문서가 아니라, 필요한 순간에 필요한 기준으로 안내하는 진입점이다. 모델이 바뀌어도 무엇을 지킬지 결정하고 그 결과에 책임지는 일은 여전히 개발자의 몫이다.
+
+## 참고 자료
+
+1. [Claude Code: How Claude remembers your project](https://code.claude.com/docs/en/memory)
+2. [Codex: Custom instructions with AGENTS.md](https://learn.chatgpt.com/docs/agent-configuration/agents-md)
+3. [Codex: Rules](https://learn.chatgpt.com/docs/agent-configuration/rules)
+4. [OpenAI: GPT-5.6](https://openai.com/index/gpt-5-6/)
+5. [Anthropic: Claude Fable 5](https://www.anthropic.com/claude/fable)
