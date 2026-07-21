@@ -19,7 +19,9 @@ import {
   renderMarkdownPreview,
   resolveUniquePostFile,
   saveDraft,
+  savePortfolioMedia,
   saveUploadedImage,
+  validatePortfolioMediaUpload,
 } from "./article-dashboard.mjs";
 
 test("normalizePortfolioProject preserves ordered image and video media", () => {
@@ -73,6 +75,50 @@ test("normalizePortfolioProject rejects invalid project fields", () => {
   for (const [input, error] of cases) assert.throws(() => normalizePortfolioProject(input), error);
   assert.throws(() => normalizePortfolioProject(null), /project/i);
   assert.throws(() => normalizePortfolioContent({ projects: [valid, valid] }), /duplicate.*slug/i);
+});
+
+test("savePortfolioMedia stores MP4 uploads and suffixes collisions", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "portfolio-media-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const upload = { fileName: "Demo Reel.mp4", contentType: "video/mp4", content: Buffer.from("mp4") };
+
+  assert.deepEqual(savePortfolioMedia(upload, root), {
+    kind: "video",
+    fileName: "demo-reel.mp4",
+    filePath: path.join(root, "public", "portfolio", "demo-reel.mp4"),
+    src: "/portfolio/demo-reel.mp4",
+  });
+  assert.equal(savePortfolioMedia(upload, root).fileName, "demo-reel-2.mp4");
+});
+
+test("validatePortfolioMediaUpload accepts supported extension and MIME pairs", () => {
+  const allowed = [
+    ["image.png", "image/png", "image"],
+    ["image.jpg", "image/jpeg", "image"],
+    ["image.jpeg", "image/jpeg", "image"],
+    ["image.gif", "image/gif", "image"],
+    ["image.webp", "image/webp", "image"],
+    ["image.avif", "image/avif", "image"],
+    ["image.svg", "image/svg+xml", "image"],
+    ["demo.mp4", "video/mp4", "video"],
+  ];
+
+  for (const [fileName, contentType, kind] of allowed) {
+    assert.equal(validatePortfolioMediaUpload({ fileName, contentType, size: 1 }).kind, kind);
+  }
+});
+
+test("validatePortfolioMediaUpload rejects unsafe, mismatched, unsupported, and oversized files", () => {
+  const invalid = [
+    [{ fileName: "../demo.mp4", contentType: "video/mp4", size: 1 }, /unsafe/i],
+    [{ fileName: "image.png", contentType: "video/mp4", size: 1 }, /content-type.*extension/i],
+    [{ fileName: "notes.txt", contentType: "text/plain", size: 1 }, /unsupported/i],
+    [{ fileName: "image.png", contentType: "image/png", size: 0 }, /size/i],
+    [{ fileName: "image.png", contentType: "image/png", size: 10 * 1024 * 1024 + 1 }, /10 MiB/i],
+    [{ fileName: "demo.mp4", contentType: "video/mp4", size: 50 * 1024 * 1024 + 1 }, /50 MiB/i],
+  ];
+
+  for (const [input, error] of invalid) assert.throws(() => validatePortfolioMediaUpload(input), error);
 });
 
 test("renderMarkdownPreview supports standard Markdown syntax", () => {

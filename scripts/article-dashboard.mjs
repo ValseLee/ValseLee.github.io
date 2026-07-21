@@ -22,6 +22,10 @@ const IMAGE_TYPES = new Map([
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const PORTFOLIO_IMAGE_EXTENSIONS = new Set(IMAGE_TYPES.keys());
 const PORTFOLIO_VIDEO_EXTENSIONS = new Set([".mp4"]);
+const PORTFOLIO_MEDIA_TYPES = new Map([
+  ...[...IMAGE_TYPES].map(([extension, contentType]) => [extension, ["image", contentType, MAX_IMAGE_BYTES]]),
+  [".mp4", ["video", "video/mp4", 50 * 1024 * 1024]],
+]);
 
 function todayString(date = new Date()) {
   const year = date.getFullYear();
@@ -212,6 +216,42 @@ export function saveUploadedImage({ fileName, contentType, content }, root = pro
     fileName: target.fileName,
     filePath: path.join("public", "images", target.fileName),
     publicPath: `/images/${target.fileName}`,
+  };
+}
+
+export function validatePortfolioMediaUpload({ fileName, contentType, size }) {
+  if (typeof fileName !== "string" || !fileName || path.basename(fileName) !== fileName || fileName.includes("\\")) {
+    throw new Error("fileName is unsafe");
+  }
+  const extension = path.extname(fileName).toLowerCase();
+  const rule = PORTFOLIO_MEDIA_TYPES.get(extension);
+  if (!rule) throw new Error("unsupported portfolio media file");
+
+  const [kind, expectedType, maxBytes] = rule;
+  if (contentType !== expectedType) throw new Error("Content-Type does not match extension");
+  if (!Number.isSafeInteger(size) || size < 1) throw new Error("upload size must be a positive integer");
+  if (size > maxBytes) {
+    throw new Error(`${kind} upload exceeds ${maxBytes === MAX_IMAGE_BYTES ? "10 MiB" : "50 MiB"}`);
+  }
+  return { kind, extension, maxBytes };
+}
+
+export function savePortfolioMedia({ fileName, contentType, content }, root = process.cwd()) {
+  if (!Buffer.isBuffer(content)) throw new Error("content must be a Buffer");
+  const { kind, extension } = validatePortfolioMediaUpload({ fileName, contentType, size: content.length });
+  const portfolioDirectory = path.join(root, "public", "portfolio");
+  const originalExtension = path.extname(fileName);
+  const originalStem = path.basename(fileName, originalExtension);
+  const requestedName = `${originalStem ? createSlug(originalStem) : "media"}${extension}`;
+  fs.mkdirSync(portfolioDirectory, { recursive: true });
+  const target = resolveUniqueImageFile(portfolioDirectory, requestedName);
+  fs.writeFileSync(target.filePath, content, { flag: "wx" });
+
+  return {
+    kind,
+    fileName: target.fileName,
+    filePath: target.filePath,
+    src: `/portfolio/${target.fileName}`,
   };
 }
 
