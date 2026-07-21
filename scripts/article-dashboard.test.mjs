@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import vm from "node:vm";
 
 import {
   buildCommitMessage,
@@ -184,6 +185,13 @@ function createPortfolioRoot(t, content) {
   return root;
 }
 
+async function startPortfolioServer(t, root) {
+  const server = createServer(root, { mode: "portfolio" });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  return `http://127.0.0.1:${server.address().port}`;
+}
+
 test("publishPortfolioProject updates by slug and stages only canonical JSON and referenced media", async (t) => {
   const root = createPortfolioRoot(t, {
     projects: [portfolioProject({ slug: "first", name: "First" }), portfolioProject({ slug: "loutine", name: "Old" })],
@@ -250,6 +258,14 @@ test("publishPortfolioProject restores canonical state before commit and keeps a
   assert.equal(newBuildResult.committed, false);
   assert.equal(fs.existsSync(newFilePath), false);
 
+  const blockedRoot = createPortfolioRoot(t, { projects: [portfolioProject({ name: "Old" })] });
+  const blockedFilePath = path.join(blockedRoot, "content", "portfolio.json");
+  const blockedBytes = fs.readFileSync(blockedFilePath);
+  fs.mkdirSync(`${blockedFilePath}.tmp`);
+  const blockedResult = await publishPortfolioProject(portfolioProject({ name: "New" }), blockedRoot, new Date("2026-07-21"), async (command, args) => `$ ${command} ${args.join(" ")}`);
+  assert.equal(blockedResult.ok, false);
+  assert.deepEqual(fs.readFileSync(blockedFilePath), blockedBytes);
+
   const pushFailure = async (command, args) => {
     if (command === "git" && args[0] === "push") throw new Error("no upstream");
     return `$ ${command} ${args.join(" ")}`;
@@ -258,6 +274,76 @@ test("publishPortfolioProject restores canonical state before commit and keeps a
   assert.equal(pushResult.committed, true);
   assert.match(pushResult.error, /no upstream/i);
   assert.equal(JSON.parse(fs.readFileSync(filePath, "utf8")).projects[0].name, "New");
+});
+
+test("portfolio mode serves the local dashboard and portfolio JSON APIs", async (t) => {
+  const project = portfolioProject();
+  const root = createPortfolioRoot(t, { projects: [project] });
+  const origin = await startPortfolioServer(t, root);
+
+  const dashboard = await fetch(`${origin}/`);
+  const html = await dashboard.text();
+  assert.equal(dashboard.status, 200);
+  for (const id of ["project-select", "new-project", "name", "period", "description-markdown", "media-input", "media-rows", "draft-select", "load-draft", "save-draft", "publish", "preview", "status", "command-log"]) {
+    assert.match(html, new RegExp(`id=["']${id}["']`));
+  }
+  assert.doesNotMatch(html, /id="article-form"/);
+  const browserScript = html.match(/<script>([\s\S]*?)<\/script>/);
+  assert.ok(browserScript);
+  assert.doesNotThrow(() => new vm.Script(browserScript[1]));
+
+  const canonical = await (await fetch(`${origin}/api/portfolio`)).json();
+  assert.deepEqual(canonical, { ok: true, projects: [project] });
+
+  const preview = await fetch(`${origin}/api/portfolio/preview`, {
+    method: "POST",
+    headers: { Origin: origin, "content-type": "application/json" },
+    body: JSON.stringify({ markdown: "## Preview" }),
+  });
+  assert.match((await preview.json()).html, /<h2>Preview<\/h2>/);
+
+  const saved = await fetch(`${origin}/api/portfolio/draft`, {
+    method: "POST",
+    headers: { Origin: origin, "content-type": "application/json" },
+    body: JSON.stringify(project),
+  });
+  assert.equal(saved.status, 200);
+  const drafts = await (await fetch(`${origin}/api/portfolio/drafts`)).json();
+  assert.equal(drafts.drafts[0].fileName, "loutine.json");
+  const loaded = await (await fetch(`${origin}/api/portfolio/draft?file=loutine.json`)).json();
+  assert.deepEqual(loaded.project, project);
+});
+
+test("portfolio mode stores and serves MP4 media and rejects cross-origin POST", async (t) => {
+  const root = createPortfolioRoot(t, { projects: [] });
+  const origin = await startPortfolioServer(t, root);
+  const media = Buffer.from("mp4");
+
+  const uploaded = await fetch(`${origin}/api/portfolio/media`, {
+    method: "POST",
+    headers: { Origin: origin, "content-type": "video/mp4", "x-file-name": "Demo.mp4" },
+    body: media,
+  });
+  assert.equal(uploaded.status, 200);
+  assert.deepEqual(await uploaded.json(), {
+    ok: true,
+    kind: "video",
+    fileName: "demo.mp4",
+    filePath: path.join(root, "public", "portfolio", "demo.mp4"),
+    src: "/portfolio/demo.mp4",
+  });
+
+  const served = await fetch(`${origin}/portfolio/demo.mp4`);
+  assert.equal(served.headers.get("content-type"), "video/mp4");
+  assert.deepEqual(Buffer.from(await served.arrayBuffer()), media);
+
+  const rejected = await fetch(`${origin}/api/portfolio/media`, {
+    method: "POST",
+    headers: { Origin: "https://evil.example", "content-type": "video/mp4", "x-file-name": "blocked.mp4" },
+    body: media,
+  });
+  assert.equal(rejected.status, 403);
+  assert.equal(fs.existsSync(path.join(root, "public", "portfolio", "blocked.mp4")), false);
 });
 
 test("renderMarkdownPreview supports standard Markdown syntax", () => {
