@@ -10,7 +10,9 @@ import {
   createServer,
   createSlug,
   listDrafts,
+  listPortfolioDrafts,
   loadDraft,
+  loadPortfolioDraft,
   normalizePortfolioContent,
   normalizePortfolioProject,
   parseCommaList,
@@ -19,6 +21,7 @@ import {
   renderMarkdownPreview,
   resolveUniquePostFile,
   saveDraft,
+  savePortfolioDraft,
   savePortfolioMedia,
   saveUploadedImage,
   validatePortfolioMediaUpload,
@@ -119,6 +122,43 @@ test("validatePortfolioMediaUpload rejects unsafe, mismatched, unsupported, and 
   ];
 
   for (const [input, error] of invalid) assert.throws(() => validatePortfolioMediaUpload(input), error);
+});
+
+test("portfolio drafts round-trip and failed replacement preserves the previous draft", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "portfolio-draft-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const project = {
+    slug: "loutine",
+    name: "Loutine",
+    period: "2025",
+    descriptionMarkdown: "Description",
+    media: [{ kind: "video", src: "/portfolio/demo.mp4", caption: "Demo" }],
+  };
+
+  const saved = savePortfolioDraft(project, root, new Date("2026-07-21T00:00:00.000Z"));
+  const draftsDirectory = path.join(root, ".portfolio-drafts");
+  const filePath = path.join(draftsDirectory, saved.fileName);
+  const previousBytes = fs.readFileSync(filePath);
+  assert.deepEqual(loadPortfolioDraft(saved.fileName, root), project);
+  assert.deepEqual(listPortfolioDrafts(root), [{
+    fileName: "loutine.json",
+    name: "Loutine",
+    updatedAt: "2026-07-21T00:00:00.000Z",
+  }]);
+
+  assert.throws(() => savePortfolioDraft({ ...project, media: [{ ...project.media[0], caption: "" }] }, root), /caption/i);
+  assert.deepEqual(fs.readFileSync(filePath), previousBytes);
+
+  const temporaryPath = `${filePath}.tmp`;
+  fs.mkdirSync(temporaryPath);
+  assert.throws(() => savePortfolioDraft({ ...project, name: "Replacement" }, root), /EISDIR|directory/i);
+  assert.deepEqual(fs.readFileSync(filePath), previousBytes);
+  assert.equal(fs.existsSync(temporaryPath), false);
+
+  fs.writeFileSync(path.join(draftsDirectory, "broken.json"), "{");
+  assert.equal(listPortfolioDrafts(root).some(({ fileName, name }) => fileName === "broken.json" && name === "broken"), true);
+  assert.throws(() => loadPortfolioDraft("broken.json", root), /malformed or invalid/i);
+  assert.throws(() => loadPortfolioDraft("../secret.json", root), /draft file/i);
 });
 
 test("renderMarkdownPreview supports standard Markdown syntax", () => {

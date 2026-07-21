@@ -26,6 +26,7 @@ const PORTFOLIO_MEDIA_TYPES = new Map([
   ...[...IMAGE_TYPES].map(([extension, contentType]) => [extension, ["image", contentType, MAX_IMAGE_BYTES]]),
   [".mp4", ["video", "video/mp4", 50 * 1024 * 1024]],
 ]);
+const PORTFOLIO_DRAFTS_DIRECTORY = ".portfolio-drafts";
 
 function todayString(date = new Date()) {
   const year = date.getFullYear();
@@ -253,6 +254,62 @@ export function savePortfolioMedia({ fileName, contentType, content }, root = pr
     filePath: target.filePath,
     src: `/portfolio/${target.fileName}`,
   };
+}
+
+export function savePortfolioDraft(rawProject, root = process.cwd(), now = new Date()) {
+  const project = normalizePortfolioProject(rawProject);
+  const draftsDirectory = path.join(root, PORTFOLIO_DRAFTS_DIRECTORY);
+  const fileName = `${project.slug}.json`;
+  const filePath = path.join(draftsDirectory, fileName);
+  const temporaryPath = `${filePath}.tmp`;
+  fs.mkdirSync(draftsDirectory, { recursive: true });
+
+  try {
+    fs.writeFileSync(temporaryPath, `${JSON.stringify(project, null, 2)}\n`, { flag: "w" });
+    fs.utimesSync(temporaryPath, now, now);
+    fs.renameSync(temporaryPath, filePath);
+  } catch (error) {
+    fs.rmSync(temporaryPath, { recursive: true, force: true });
+    throw error;
+  }
+
+  return { fileName, name: project.name, updatedAt: now.toISOString(), project };
+}
+
+function normalizePortfolioDraftFileName(fileName) {
+  if (typeof fileName !== "string" || !/^[\p{Letter}\p{Number}]+(?:-[\p{Letter}\p{Number}]+)*\.json$/u.test(fileName)) {
+    throw new Error("draft file is invalid");
+  }
+  return fileName;
+}
+
+export function loadPortfolioDraft(fileName, root = process.cwd()) {
+  const safeFileName = normalizePortfolioDraftFileName(fileName);
+  const filePath = path.join(root, PORTFOLIO_DRAFTS_DIRECTORY, safeFileName);
+  if (!fs.existsSync(filePath)) throw new Error(`draft ${safeFileName} was not found`);
+  try {
+    return normalizePortfolioProject(JSON.parse(fs.readFileSync(filePath, "utf8")));
+  } catch {
+    throw new Error(`draft ${safeFileName} is malformed or invalid`);
+  }
+}
+
+export function listPortfolioDrafts(root = process.cwd()) {
+  const draftsDirectory = path.join(root, PORTFOLIO_DRAFTS_DIRECTORY);
+  if (!fs.existsSync(draftsDirectory)) return [];
+
+  return fs.readdirSync(draftsDirectory)
+    .filter((fileName) => fileName.endsWith(".json"))
+    .map((fileName) => {
+      const filePath = path.join(draftsDirectory, fileName);
+      const updatedAt = fs.statSync(filePath).mtime.toISOString();
+      try {
+        return { fileName, name: loadPortfolioDraft(fileName, root).name, updatedAt };
+      } catch {
+        return { fileName, name: path.basename(fileName, ".json"), updatedAt };
+      }
+    })
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
 
 export function buildCommitMessage(date, title) {
