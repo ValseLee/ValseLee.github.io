@@ -11,6 +11,8 @@ import {
   createSlug,
   listDrafts,
   loadDraft,
+  normalizePortfolioContent,
+  normalizePortfolioProject,
   parseCommaList,
   parseDraftMdx,
   publishPost,
@@ -19,6 +21,59 @@ import {
   saveDraft,
   saveUploadedImage,
 } from "./article-dashboard.mjs";
+
+test("normalizePortfolioProject preserves ordered image and video media", () => {
+  const project = normalizePortfolioProject({
+    slug: "loutine",
+    name: " Loutine ",
+    period: " 2025.01 — Present ",
+    descriptionMarkdown: "## Project description",
+    media: [
+      { kind: "image", src: "/portfolio/home.png", caption: " Home ", alt: " Home screen " },
+      { kind: "video", src: "/portfolio/demo.mp4", caption: " Demo ", alt: "discard me" },
+    ],
+  });
+
+  assert.deepEqual(project, {
+    slug: "loutine",
+    name: "Loutine",
+    period: "2025.01 — Present",
+    descriptionMarkdown: "## Project description",
+    media: [
+      { kind: "image", src: "/portfolio/home.png", caption: "Home", alt: "Home screen" },
+      { kind: "video", src: "/portfolio/demo.mp4", caption: "Demo" },
+    ],
+  });
+});
+
+test("normalizePortfolioProject rejects invalid project fields", () => {
+  const valid = {
+    slug: "loutine",
+    name: "Loutine",
+    period: "2025",
+    descriptionMarkdown: "Description",
+    media: [{ kind: "image", src: "/portfolio/home.png", caption: "Home", alt: "Home" }],
+  };
+  const cases = [
+    [{ ...valid, name: "" }, /name/i],
+    [{ ...valid, name: "n".repeat(121) }, /name.*120/i],
+    [{ ...valid, period: "" }, /period/i],
+    [{ ...valid, period: "p".repeat(81) }, /period.*80/i],
+    [{ ...valid, descriptionMarkdown: "" }, /descriptionMarkdown/i],
+    [{ ...valid, descriptionMarkdown: "d".repeat(50_001) }, /descriptionMarkdown.*50000/i],
+    [{ ...valid, media: [{ ...valid.media[0], caption: "" }] }, /media\[0\]\.caption/i],
+    [{ ...valid, media: [{ ...valid.media[0], caption: "c".repeat(301) }] }, /media\[0\]\.caption.*300/i],
+    [{ ...valid, media: [{ ...valid.media[0], alt: "" }] }, /media\[0\]\.alt/i],
+    [{ ...valid, media: [{ ...valid.media[0], src: "/portfolio/../home.png" }] }, /media\[0\]\.src/i],
+    [{ ...valid, media: [{ ...valid.media[0], src: "/portfolio/home.txt" }] }, /media\[0\]\.src/i],
+    [{ ...valid, media: [{ kind: "image", src: "/portfolio/demo.mp4", caption: "Demo", alt: "Demo" }] }, /media\[0\]\.kind/i],
+    [{ ...valid, media: Array.from({ length: 21 }, () => valid.media[0]) }, /media/i],
+  ];
+
+  for (const [input, error] of cases) assert.throws(() => normalizePortfolioProject(input), error);
+  assert.throws(() => normalizePortfolioProject(null), /project/i);
+  assert.throws(() => normalizePortfolioContent({ projects: [valid, valid] }), /duplicate.*slug/i);
+});
 
 test("renderMarkdownPreview supports standard Markdown syntax", () => {
   const html = renderMarkdownPreview("**굵게** [링크](/archive)\n\n1. 첫째\n2. 둘째\n\n![설명](/images/example.png)");

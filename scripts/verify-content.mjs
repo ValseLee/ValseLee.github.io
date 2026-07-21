@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { normalizePortfolioContent } from "./article-dashboard.mjs";
+
 const root = process.cwd();
 const expectedTranslationSlugs = [
   "building_ios_apps_with_ai_agents_the_practitioner_s_guide",
@@ -61,6 +63,8 @@ for (const slug of expectedTranslationSlugs) {
   assert(body.trim().length > 100, `${slug} body is too short`);
 }
 
+const portfolio = normalizePortfolioContent(JSON.parse(read("content/portfolio.json")));
+
 const searchableFiles = [
   ...fs.readdirSync(path.join(root, "app"), { recursive: true }).map((file) => path.join("app", file)),
   ...fs.readdirSync(path.join(root, "components"), { recursive: true }).map((file) => path.join("components", file)),
@@ -82,4 +86,4 @@ for (const section of ["about", "expertise", "articles", "experience", "contact"
 }
 assert(home.includes("site.contact.email &&"), "home must hide the email link when contact.email is empty");
 
-console.log(`verified ${actualSlugs.length} translations and no admin coupling`);
+console.log(`verified ${actualSlugs.length} translations, ${portfolio.projects.length} portfolio projects, and no admin coupling`);
