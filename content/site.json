@@ -8,13 +8,13 @@
   "about": {
     "updated": "Updated Jul. 2026",
     "bio": "임팩트 주도형 iOS Product Engineer, 이승준입니다. 제품 기획부터 몰입형 UI 개발까지, 서비스 개발의 전 영역에 적극 참여하고 팀의 성장을 주도합니다.",
-    "practice": "AI 코드 어시스턴트를 위한 가이드와 Workflow를 구축하고, 기술적 경험을 블로그와 컨퍼런스, 출판으로 공유합니다.",
+    "practice": "AI 에이전트를 활용한 소프트웨어 제품 개발의 접점을 탐구하고 직접 구축합니다. 배운 것을 다시 글로 정리하며 지식을 공유하는 데에 관심이 많습니다.",
     "principles": ["Build the smallest useful thing.", "Make decisions visible.", "Write to sharpen the work."]
   },
   "expertise": [
-    { "label": "Engineering", "items": ["Swift", "UIKit", "SwiftUI", "React", "TypeScript"] },
-    { "label": "Product", "items": ["Product Planning", "OKR Leadership", "Globalization"] },
-    { "label": "Writing", "items": ["Technical Blogging", "Conference Speaking", "Technical Publishing"] }
+    { "label": "Engineering", "items": ["AI Systems", "iOS Software Architecture", "React"] },
+    { "label": "Product", "items": ["Prototyping", "Developer Experience", "Technical Strategy"] },
+    { "label": "Writing", "items": ["Build Logs", "Engineering Essays", "Translations"] }
   ],
   "experience": [
     {
@@ -43,7 +43,7 @@
     }
   ],
   "contact": {
-    "email": "sollleky72@gmail.com",
+    "email": "mailto:sollleky72@gmail.com",
     "socials": [{ "label": "GitHub", "url": "https://github.com/ValseLee" }],
     "copyright": "© 2026 Celan. Built as a static archive."
   }
