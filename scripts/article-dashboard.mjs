@@ -1011,6 +1011,8 @@ function renderPortfolioDashboard(root) {
     button { border:1px solid var(--border); border-radius:999px; background:#fff; color:#050505; padding:10px 15px; font-weight:650; cursor:pointer; }
     button.secondary { background:transparent; color:var(--foreground); }
     button:disabled { opacity:.5; cursor:not-allowed; }
+    .media-drop-area { border:1px solid transparent; border-radius:16px; margin:0 -12px 16px; padding:12px; }
+    .media-drop-area.drag-active { border-color:var(--foreground); background:rgba(255,255,255,.06); }
     #media-rows { list-style:none; padding:0; display:grid; gap:14px; }
     .media-row { border:1px solid var(--border); border-radius:16px; padding:14px; }
     .media-row img,.media-row video,#preview img,#preview video { width:100%; max-height:280px; object-fit:contain; border-radius:10px; background:#050505; }
@@ -1053,8 +1055,10 @@ function renderPortfolioDashboard(root) {
           <button id="remove-cover" type="button" class="secondary" disabled>Remove Cover</button>
         </div>
         <div class="field"><label for="description-markdown">Markdown description</label><textarea id="description-markdown" maxlength="50000" required></textarea></div>
-        <div class="field"><label for="media-input">Images or MP4 files</label><input id="media-input" type="file" multiple accept="image/*,video/mp4" /></div>
-        <ol id="media-rows"></ol>
+        <div id="media-area" class="media-drop-area">
+          <div class="field"><label for="media-input">Images or MP4 files</label><input id="media-input" type="file" multiple accept="image/*,video/mp4" /></div>
+          <ol id="media-rows"></ol>
+        </div>
         <div class="controls">
           <div class="field"><label for="draft-select">Saved draft</label><select id="draft-select"></select></div>
           <button id="load-draft" type="button" class="secondary">Load</button>
@@ -1082,6 +1086,7 @@ function renderPortfolioDashboard(root) {
     const coverAltInput = document.querySelector("#cover-alt");
     const removeCoverButton = document.querySelector("#remove-cover");
     const descriptionInput = document.querySelector("#description-markdown");
+    const mediaArea = document.querySelector("#media-area");
     const mediaInput = document.querySelector("#media-input");
     const mediaRows = document.querySelector("#media-rows");
     const draftSelect = document.querySelector("#draft-select");
@@ -1374,8 +1379,8 @@ function renderPortfolioDashboard(root) {
       if (mayReplaceForm()) setProject(emptyProject());
     });
 
-    mediaInput.addEventListener("change", () => withAction(mediaInput, async () => {
-      for (const file of mediaInput.files) {
+    async function uploadMediaFiles(files) {
+      for (const file of files) {
         const response = await fetch("/api/portfolio/media", {
           method:"POST", headers:{ "content-type":file.type, "x-file-name":encodeURIComponent(file.name) }, body:file,
         });
@@ -1388,9 +1393,51 @@ function renderPortfolioDashboard(root) {
         renderMediaRows();
         schedulePreview();
       }
-      mediaInput.value = "";
       setStatus("Media uploaded", "ok");
+    }
+
+    mediaInput.addEventListener("change", () => withAction(mediaInput, async () => {
+      const files = Array.from(mediaInput.files);
+      try { await uploadMediaFiles(files); }
+      finally { mediaInput.value = ""; }
     }));
+
+    const hasDraggedFiles = (event) => Array.from(event.dataTransfer?.types || []).includes("Files");
+    let mediaDragDepth = 0;
+
+    function resetMediaDrag() {
+      mediaDragDepth = 0;
+      mediaArea.classList.remove("drag-active");
+    }
+
+    document.body.addEventListener("dragenter", (event) => {
+      if (!hasDraggedFiles(event)) return;
+      event.preventDefault();
+      mediaDragDepth += 1;
+      mediaArea.classList.add("drag-active");
+    });
+
+    document.body.addEventListener("dragover", (event) => {
+      if (!hasDraggedFiles(event)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      mediaArea.classList.add("drag-active");
+    });
+
+    document.body.addEventListener("dragleave", (event) => {
+      if (!hasDraggedFiles(event)) return;
+      mediaDragDepth = Math.max(0, mediaDragDepth - 1);
+      if (mediaDragDepth === 0) mediaArea.classList.remove("drag-active");
+    });
+
+    document.body.addEventListener("drop", (event) => {
+      const isFileDrop = hasDraggedFiles(event);
+      const files = isFileDrop ? Array.from(event.dataTransfer.files) : [];
+      resetMediaDrag();
+      if (!isFileDrop) return;
+      event.preventDefault();
+      return withAction(mediaInput, () => uploadMediaFiles(files));
+    });
 
     loadDraftButton.addEventListener("click", () => withAction(loadDraftButton, async () => {
       if (!draftSelect.value || !mayReplaceForm()) return;

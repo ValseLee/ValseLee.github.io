@@ -400,9 +400,10 @@ test("portfolio mode serves the local dashboard and portfolio JSON APIs", async 
   const dashboard = await fetch(`${origin}/`);
   const html = await dashboard.text();
   assert.equal(dashboard.status, 200);
-  for (const id of ["project-select", "new-project", "name", "period-start", "period-end", "period-present", "cover-input", "cover-preview", "cover-alt", "remove-cover", "description-markdown", "media-input", "media-rows", "draft-select", "load-draft", "save-draft", "publish", "preview", "status", "command-log"]) {
+  for (const id of ["project-select", "new-project", "name", "period-start", "period-end", "period-present", "cover-input", "cover-preview", "cover-alt", "remove-cover", "description-markdown", "media-area", "media-input", "media-rows", "draft-select", "load-draft", "save-draft", "publish", "preview", "status", "command-log"]) {
     assert.match(html, new RegExp(`id=["']${id}["']`));
   }
+  assert.match(html, /id="media-area" class="media-drop-area"/);
   assert.match(html, /<input id="period-start" type="date" required/);
   assert.match(html, /<input id="period-end" type="date" required/);
   assert.match(html, /<input id="period-present" type="checkbox"/);
@@ -448,6 +449,7 @@ test("portfolio controls retain browser behavior", async (t) => {
 
   const createElement = () => {
     const listeners = new Map();
+    const classes = new Set();
     return {
       value: "",
       checked: false,
@@ -457,13 +459,19 @@ test("portfolio controls retain browser behavior", async (t) => {
       files: [],
       children: [],
       style: {},
+      classList: {
+        add(...names) { names.forEach((name) => classes.add(name)); },
+        remove(...names) { names.forEach((name) => classes.delete(name)); },
+        contains(name) { return classes.has(name); },
+      },
       addEventListener(type, listener) { listeners.set(type, listener); },
-      dispatch(type) { return listeners.get(type)?.({ preventDefault() {} }); },
+      dispatch(type, event = {}) { return listeners.get(type)?.({ preventDefault() {}, ...event }); },
       append(...children) { this.children.push(...children); },
       replaceChildren(...children) { this.children = children; },
     };
   };
-  const selectors = ["portfolio-form", "project-select", "new-project", "name", "period-start", "period-end", "period-present", "cover-input", "cover-preview", "cover-alt", "remove-cover", "description-markdown", "media-input", "media-rows", "draft-select", "load-draft", "save-draft", "publish", "preview", "status", "command-log"];
+  const body = createElement();
+  const selectors = ["portfolio-form", "project-select", "new-project", "name", "period-start", "period-end", "period-present", "cover-input", "cover-preview", "cover-alt", "remove-cover", "description-markdown", "media-area", "media-input", "media-rows", "draft-select", "load-draft", "save-draft", "publish", "preview", "status", "command-log"];
   const elements = new Map(selectors.map((id) => [`#${id}`, createElement()]));
   let formValid = false;
   let validityChecks = 0;
@@ -474,19 +482,27 @@ test("portfolio controls retain browser behavior", async (t) => {
   let confirmCalls = 0;
   const requests = [];
   let canonicalProject = project;
-  let mediaUploadCount = 0;
   let publishCount = 0;
   const browserFetch = async (url, options = {}) => {
     requests.push({ url, options });
     let result;
+    let responseOk = true;
     if (url === "/api/portfolio") result = { ok: true, projects: [canonicalProject] };
     else if (url === "/api/portfolio/drafts") result = { ok: true, drafts: [] };
     else if (url === "/api/portfolio/preview") result = { ok: true, html: "<p>preview</p>" };
     else if (url === "/api/portfolio/media") {
-      mediaUploadCount += 1;
-      result = mediaUploadCount === 1
-        ? { ok: true, kind: "video", src: "/portfolio/rejected.mp4" }
-        : { ok: true, kind: "image", src: "/portfolio/new-cover.png" };
+      const fileName = decodeURIComponent(options.headers["x-file-name"]);
+      if (fileName === "rejected.mp4") {
+        result = { ok: true, kind: "video", src: "/portfolio/rejected.mp4" };
+      } else if (fileName === "new-cover.png") {
+        result = { ok: true, kind: "image", src: "/portfolio/new-cover.png" };
+      } else if (fileName === "bad.txt") {
+        responseOk = false;
+        result = { ok: false, error: "unsupported portfolio media file" };
+      } else {
+        const kind = fileName.endsWith(".mp4") ? "video" : "image";
+        result = { ok: true, kind, src: `/portfolio/${fileName}` };
+      }
     }
     else if (url === "/api/portfolio/draft" && options.method === "POST") {
       const submitted = JSON.parse(options.body);
@@ -502,11 +518,12 @@ test("portfolio controls retain browser behavior", async (t) => {
           : { ok: false, committed: false, error: "build failed", logs: [] };
     }
     else throw new Error(`Unexpected browser request: ${url}`);
-    return { ok: true, status: 200, json: async () => result };
+    return { ok: responseOk, status: responseOk ? 200 : 400, json: async () => result };
   };
 
   vm.runInNewContext(browserScript[1], {
     document: {
+      body,
       querySelector: (selector) => elements.get(selector),
       createElement,
     },
@@ -581,6 +598,92 @@ test("portfolio controls retain browser behavior", async (t) => {
   const coverDraft = JSON.parse(draftPosts().at(-1).options.body);
   assert.deepEqual(coverDraft.coverImage, { src: "/portfolio/new-cover.png", alt: "New cover" });
   assert.equal(coverDraft.media.length, 1);
+
+  const mediaArea = elements.get("#media-area");
+  const mediaInput = elements.get("#media-input");
+  const mediaRows = elements.get("#media-rows");
+  const mediaPaths = () => mediaRows.children.map((row) => row.children[1].textContent);
+  const dropped = {
+    types: ["Files"],
+    files: [
+      { name: "drop-one.png", type: "image/png" },
+      { name: "drop-two.mp4", type: "video/mp4" },
+    ],
+    dropEffect: "none",
+  };
+
+  body.dispatch("dragenter", { dataTransfer: dropped });
+  body.dispatch("dragenter", { dataTransfer: dropped });
+  assert.equal(mediaArea.classList.contains("drag-active"), true);
+  assert.equal(body.classList.contains("drag-active"), false);
+  assert.equal(coverPreview.classList.contains("drag-active"), false);
+  let overPrevented = false;
+  body.dispatch("dragover", {
+    dataTransfer: dropped,
+    preventDefault() { overPrevented = true; },
+  });
+  assert.deepEqual({ overPrevented, dropEffect: dropped.dropEffect }, { overPrevented: true, dropEffect: "copy" });
+  body.dispatch("dragleave", { dataTransfer: dropped });
+  assert.equal(mediaArea.classList.contains("drag-active"), true);
+  body.dispatch("dragleave", { dataTransfer: dropped });
+  assert.equal(mediaArea.classList.contains("drag-active"), false);
+  body.dispatch("dragenter", { dataTransfer: dropped });
+
+  let dropPrevented = false;
+  await body.dispatch("drop", {
+    dataTransfer: dropped,
+    target: coverPreview,
+    preventDefault() { dropPrevented = true; },
+  });
+  assert.equal(dropPrevented, true);
+  assert.equal(mediaArea.classList.contains("drag-active"), false);
+  assert.deepEqual(mediaPaths(), [
+    "/portfolio/demo.mp4",
+    "/portfolio/drop-one.png",
+    "/portfolio/drop-two.mp4",
+  ]);
+  assert.equal(coverPreview.children[0].src, "/portfolio/new-cover.png");
+
+  const partial = {
+    types: ["Files"],
+    files: [
+      { name: "kept.png", type: "image/png" },
+      { name: "bad.txt", type: "text/plain" },
+      { name: "skipped.mp4", type: "video/mp4" },
+    ],
+    dropEffect: "none",
+  };
+  body.dispatch("dragenter", { dataTransfer: partial });
+  await body.dispatch("drop", { dataTransfer: partial, preventDefault() {} });
+  assert.equal(mediaArea.classList.contains("drag-active"), false);
+  assert.deepEqual(mediaPaths().slice(-1), ["/portfolio/kept.png"]);
+  assert.match(elements.get("#status").textContent, /unsupported portfolio media file/);
+  const uploadedNames = requests
+    .filter(({ url }) => url === "/api/portfolio/media")
+    .map(({ options }) => decodeURIComponent(options.headers["x-file-name"]));
+  assert.deepEqual(uploadedNames.slice(-4), ["drop-one.png", "drop-two.mp4", "kept.png", "bad.txt"]);
+  assert.equal(uploadedNames.includes("skipped.mp4"), false);
+
+  mediaInput.files = [
+    { name: "input.png", type: "image/png" },
+    { name: "input.mp4", type: "video/mp4" },
+  ];
+  await mediaInput.dispatch("change");
+  assert.equal(mediaInput.value, "");
+  assert.deepEqual(mediaPaths().slice(-2), ["/portfolio/input.png", "/portfolio/input.mp4"]);
+
+  elements.get("#save-draft").dispatch("click");
+  await settle();
+  const mediaDraft = JSON.parse(draftPosts().at(-1).options.body);
+  assert.deepEqual(mediaDraft.coverImage, { src: "/portfolio/new-cover.png", alt: "New cover" });
+  assert.deepEqual(mediaDraft.media.map(({ kind, src }) => ({ kind, src })), [
+    { kind: "video", src: "/portfolio/demo.mp4" },
+    { kind: "image", src: "/portfolio/drop-one.png" },
+    { kind: "video", src: "/portfolio/drop-two.mp4" },
+    { kind: "image", src: "/portfolio/kept.png" },
+    { kind: "image", src: "/portfolio/input.png" },
+    { kind: "video", src: "/portfolio/input.mp4" },
+  ]);
 
   removeCover.dispatch("click");
   assert.equal(coverAlt.disabled, true);
