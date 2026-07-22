@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Figtree } from "next/font/google";
-import Header from "@/components/Header";
 import site from "@/content/site";
 import "./globals.css";
 
@@ -24,7 +23,6 @@ export default function RootLayout({
     <html lang="ko">
       <body className={`${figtree.variable} antialiased`}>
         <div className="site-shell">
-          <Header />
           <main>{children}</main>
         </div>
       </body>

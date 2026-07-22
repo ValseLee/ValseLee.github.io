@@ -1,4 +1,7 @@
 import type { Post } from "./posts";
+import type { PortfolioProject } from "./portfolio.mjs";
+
+export type { PortfolioProject } from "./portfolio.mjs";
 
 export type DraftKind = "articles" | "portfolio";
 
@@ -12,18 +15,6 @@ export interface DraftSummary {
   slug: string;
   label: string;
   valid: boolean;
-}
-
-export type PortfolioMedia =
-  | { kind: "image"; src: string; caption: string; alt: string }
-  | { kind: "video"; src: string; caption: string };
-
-export interface PortfolioProject {
-  slug: string;
-  name: string;
-  period: string;
-  descriptionMarkdown: string;
-  media: PortfolioMedia[];
 }
 
 export type DraftLoadResult =

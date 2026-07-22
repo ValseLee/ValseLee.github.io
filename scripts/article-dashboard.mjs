@@ -11,6 +11,7 @@ import {
   normalizePortfolioContent,
   normalizePortfolioProject,
   normalizePortfolioSrc,
+  PORTFOLIO_MEDIA_WIDTHS,
 } from "../lib/portfolio.mjs";
 
 export { createSlug, mergePortfolioProject, normalizePortfolioContent, normalizePortfolioProject };
@@ -108,7 +109,14 @@ export async function publishPortfolioProject(rawProject, root = process.cwd(), 
     return { ok: true, committed: false, slug: project.slug, filePath: relativeFilePath, commitMessage, logs };
   }
 
-  const mediaPaths = [...new Set(project.media.map(({ src }) => path.join("public", src.slice(1))))];
+  const mediaSources = [
+    project.coverImage?.src,
+    ...project.media.flatMap((media) => [
+      media.src,
+      media.kind === "video" ? media.posterSrc : undefined,
+    ]),
+  ].filter(Boolean);
+  const mediaPaths = [...new Set(mediaSources.map((src) => path.join("public", src.slice(1))))];
   const stagedPaths = [relativeFilePath, ...mediaPaths];
   const modulesPath = path.join(root, "node_modules");
   const linkedModulesPath = fs.lstatSync(modulesPath, { throwIfNoEntry: false })?.isSymbolicLink()
@@ -664,7 +672,6 @@ function renderDashboard(root) {
       <nav>
         <a href="/">[ Home ]</a>
         <a href="/archive">[ Archive ]</a>
-        <a href="/categories">[ Categories ]</a>
         <a href="/translations">[ Translations ]</a>
         <a class="active" href="/">[ Write ]</a>
       </nav>
@@ -1011,9 +1018,13 @@ function renderPortfolioDashboard(root) {
     button { border:1px solid var(--border); border-radius:999px; background:#fff; color:#050505; padding:10px 15px; font-weight:650; cursor:pointer; }
     button.secondary { background:transparent; color:var(--foreground); }
     button:disabled { opacity:.5; cursor:not-allowed; }
+    .media-drop-area { border:1px solid transparent; border-radius:16px; margin:0 -12px 16px; padding:12px; }
+    .media-drop-area.drag-active { border-color:var(--foreground); background:rgba(255,255,255,.06); }
     #media-rows { list-style:none; padding:0; display:grid; gap:14px; }
     .media-row { border:1px solid var(--border); border-radius:16px; padding:14px; }
     .media-row img,.media-row video,#preview img,#preview video { width:100%; max-height:280px; object-fit:contain; border-radius:10px; background:#050505; }
+    .cover-preview { min-height:160px; margin:10px 0; display:grid; place-items:center; border-radius:10px; background:#050505; color:var(--subtext); overflow:hidden; }
+    .cover-preview img { width:100%; max-height:280px; object-fit:contain; }
     .media-path { display:block; overflow-wrap:anywhere; margin:8px 0 12px; }
     #preview .markdown { line-height:1.7; overflow-wrap:anywhere; }
     #preview figure { margin:20px 0 0; }
@@ -1042,9 +1053,19 @@ function renderPortfolioDashboard(root) {
             <label class="checkbox"><input id="period-present" type="checkbox" /> Present</label>
           </div>
         </div>
+        <div class="field">
+          <label for="cover-input">Cover image</label>
+          <input id="cover-input" type="file" accept="image/*" />
+          <div id="cover-preview" class="cover-preview"></div>
+          <label for="cover-alt">Cover alt</label>
+          <input id="cover-alt" disabled />
+          <button id="remove-cover" type="button" class="secondary" disabled>Remove Cover</button>
+        </div>
         <div class="field"><label for="description-markdown">Markdown description</label><textarea id="description-markdown" maxlength="50000" required></textarea></div>
-        <div class="field"><label for="media-input">Images or MP4 files</label><input id="media-input" type="file" multiple accept="image/*,video/mp4" /></div>
-        <ol id="media-rows"></ol>
+        <div id="media-area" class="media-drop-area">
+          <div class="field"><label for="media-input">Images or MP4 files</label><input id="media-input" type="file" multiple accept="image/*,video/mp4" /></div>
+          <ol id="media-rows"></ol>
+        </div>
         <div class="controls">
           <div class="field"><label for="draft-select">Saved draft</label><select id="draft-select"></select></div>
           <button id="load-draft" type="button" class="secondary">Load</button>
@@ -1067,7 +1088,12 @@ function renderPortfolioDashboard(root) {
     const periodStartInput = document.querySelector("#period-start");
     const periodEndInput = document.querySelector("#period-end");
     const periodPresentInput = document.querySelector("#period-present");
+    const coverInput = document.querySelector("#cover-input");
+    const coverPreview = document.querySelector("#cover-preview");
+    const coverAltInput = document.querySelector("#cover-alt");
+    const removeCoverButton = document.querySelector("#remove-cover");
     const descriptionInput = document.querySelector("#description-markdown");
+    const mediaArea = document.querySelector("#media-area");
     const mediaInput = document.querySelector("#media-input");
     const mediaRows = document.querySelector("#media-rows");
     const draftSelect = document.querySelector("#draft-select");
@@ -1079,6 +1105,8 @@ function renderPortfolioDashboard(root) {
     const commandLog = document.querySelector("#command-log");
     const emptyProject = () => ({ slug:"", name:"", period:"", descriptionMarkdown:"", media:[] });
     const state = { project:emptyProject(), projects:[], dirty:false, previewRequest:0 };
+    const mediaWidths = ${JSON.stringify(PORTFOLIO_MEDIA_WIDTHS)};
+    const mediaSizes = Object.keys(mediaWidths);
     const canonicalPeriod = /^(\\d{4}\\.\\d{2}\\.\\d{2}) — (Present|\\d{4}\\.\\d{2}\\.\\d{2})$/;
     const toIsoDate = (value) => value.replaceAll(".", "-");
     const toPeriodDate = (value) => value.replaceAll("-", ".");
@@ -1109,9 +1137,28 @@ function renderPortfolioDashboard(root) {
       periodEndInput.min = periodStartInput.value;
     }
 
+    function renderCoverControls() {
+      const cover = state.project.coverImage;
+      coverAltInput.disabled = !cover;
+      coverAltInput.required = Boolean(cover);
+      coverAltInput.value = cover?.alt || "";
+      removeCoverButton.disabled = !cover;
+      if (cover) {
+        const image = document.createElement("img");
+        image.src = cover.src;
+        image.alt = cover.alt;
+        coverPreview.replaceChildren(image);
+      } else {
+        const empty = document.createElement("span");
+        empty.textContent = "No cover";
+        coverPreview.replaceChildren(empty);
+      }
+    }
+
     function syncFields() {
       nameInput.value = state.project.name;
       syncPeriodFields();
+      renderCoverControls();
       descriptionInput.value = state.project.descriptionMarkdown;
     }
 
@@ -1154,8 +1201,77 @@ function renderPortfolioDashboard(root) {
       const element = document.createElement(item.kind === "image" ? "img" : "video");
       element.src = item.src;
       if (item.kind === "image") element.alt = item.alt;
-      else { element.controls = true; element.preload = "metadata"; }
+      else {
+        element.controls = true;
+        element.preload = "metadata";
+        if (item.posterSrc) element.poster = item.posterSrc;
+      }
       return element;
+    }
+
+    function applyMediaSize(element, size) {
+      element.style.width = mediaWidths[size];
+      element.style.marginInline = "auto";
+    }
+
+    function loadVideoFrame(src) {
+      return new Promise((resolve, reject) => {
+        const video = document.createElement("video");
+        const cleanup = () => {
+          video.removeEventListener("loadeddata", loaded);
+          video.removeEventListener("error", failed);
+          video.removeEventListener("abort", failed);
+        };
+        const loaded = () => { cleanup(); resolve(video); };
+        const failed = (event) => {
+          cleanup();
+          const error = video.error;
+          const reason = event.type === "abort"
+            ? "load aborted"
+            : ({ 1:"load aborted", 2:"network error", 3:"decode error", 4:"source unsupported" })[error?.code] || "unknown media error";
+          const code = event.type === "error" && error?.code ? " (code " + error.code + ")" : "";
+          const detail = error?.message ? ": " + error.message : "";
+          reject(new Error("Thumbnail video " + reason + code + " for " + src + detail));
+        };
+        video.addEventListener("loadeddata", loaded);
+        video.addEventListener("error", failed);
+        video.addEventListener("abort", failed);
+        video.preload = "auto";
+        video.currentTime = 0;
+        video.src = src;
+        video.load();
+      });
+    }
+
+    function canvasJpeg(canvas) {
+      return new Promise((resolve, reject) => canvas.toBlob(
+        (blob) => blob ? resolve(blob) : reject(new Error("Thumbnail canvas returned no image")),
+        "image/jpeg",
+      ));
+    }
+
+    function posterFileName(src) {
+      const fileName = decodeURIComponent(src.split("/").at(-1));
+      return fileName.replace(/\\.[^.]+$/, "") + "-poster.jpg";
+    }
+
+    async function generateVideoPoster(item) {
+      const video = await loadVideoFrame(item.src);
+      if (!(video.videoWidth > 0 && video.videoHeight > 0)) throw new Error("Thumbnail video has no decoded frame");
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("Thumbnail canvas is unavailable");
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const blob = await canvasJpeg(canvas);
+      const file = new File([blob], posterFileName(item.src), { type:"image/jpeg" });
+      const stored = await uploadPortfolioFile(file, "Thumbnail upload failed");
+      if (stored.kind !== "image" || typeof stored.src !== "string") throw new Error("Thumbnail upload must return an image");
+      item.posterSrc = stored.src;
+      state.dirty = true;
+      renderMediaRows();
+      schedulePreview();
     }
 
     function mediaButton(label, action, disabled) {
@@ -1173,6 +1289,7 @@ function renderPortfolioDashboard(root) {
       state.project.media.forEach((item, index) => {
         const row = document.createElement("li");
         row.className = "media-row";
+        applyMediaSize(row, item.size);
         row.append(mediaElement(item));
         const storedPath = document.createElement("code");
         storedPath.className = "media-path";
@@ -1200,8 +1317,34 @@ function renderPortfolioDashboard(root) {
           row.append(altLabel);
         }
 
+        const sizeLabel = document.createElement("label");
+        sizeLabel.className = "media-size-field";
+        sizeLabel.textContent = "Size for " + item.src;
+        const sizeSelect = document.createElement("select");
+        for (const size of mediaSizes) {
+          const option = document.createElement("option");
+          option.value = size;
+          option.textContent = size;
+          sizeSelect.append(option);
+        }
+        sizeSelect.value = item.size;
+        sizeSelect.addEventListener("change", () => {
+          item.size = sizeSelect.value;
+          applyMediaSize(row, item.size);
+          markDirty();
+        });
+        sizeLabel.append(sizeSelect);
+        row.append(sizeLabel);
+
         const actions = document.createElement("div");
         actions.className = "media-actions";
+        if (item.kind === "video") {
+          const generateButton = mediaButton("Generate Thumbnail", () => withAction(generateButton, async () => {
+            await generateVideoPoster(item);
+            setStatus("Thumbnail generated", "ok");
+          }), false);
+          actions.append(generateButton);
+        }
         actions.append(
           mediaButton("Move Up", () => moveMedia(index, -1), index === 0),
           mediaButton("Move Down", () => moveMedia(index, 1), index === state.project.media.length - 1),
@@ -1221,9 +1364,11 @@ function renderPortfolioDashboard(root) {
       period.textContent = state.project.period;
       const markdown = document.createElement("div");
       markdown.className = "markdown";
-      preview.replaceChildren(title, period, markdown);
+      const cover = state.project.coverImage ? mediaElement({ kind:"image", ...state.project.coverImage }) : null;
+      preview.replaceChildren(...(cover ? [cover] : []), title, period, markdown);
       for (const item of state.project.media) {
         const figure = document.createElement("figure");
+        applyMediaSize(figure, item.size);
         figure.append(mediaElement(item));
         const caption = document.createElement("figcaption");
         caption.textContent = item.caption;
@@ -1282,6 +1427,7 @@ function renderPortfolioDashboard(root) {
         draftSelect.append(option);
       }
       loadDraftButton.disabled = !result.drafts.length;
+      return result.drafts[0]?.fileName;
     }
 
     async function withAction(control, action) {
@@ -1291,12 +1437,49 @@ function renderPortfolioDashboard(root) {
       finally { control.disabled = false; }
     }
 
+    async function uploadPortfolioFile(file, failureMessage = "Upload failed") {
+      const response = await fetch("/api/portfolio/media", {
+        method:"POST",
+        headers:{ "content-type":file.type, "x-file-name":encodeURIComponent(file.name) },
+        body:file,
+      });
+      const stored = await response.json();
+      if (!response.ok) throw new Error(stored.error || failureMessage);
+      return stored;
+    }
+
     for (const [input, field] of [[nameInput,"name"],[descriptionInput,"descriptionMarkdown"]]) {
       input.addEventListener("input", () => { state.project[field] = input.value; markDirty(); });
     }
     periodStartInput.addEventListener("input", updatePeriod);
     periodEndInput.addEventListener("input", updatePeriod);
     periodPresentInput.addEventListener("change", updatePeriod);
+
+    coverInput.addEventListener("change", () => withAction(coverInput, async () => {
+      const file = coverInput.files[0];
+      if (!file) return;
+      try {
+        const stored = await uploadPortfolioFile(file, "Cover upload failed");
+        if (stored.kind !== "image" || typeof stored.src !== "string") throw new Error("Cover must be an image");
+        state.project.coverImage = { src:stored.src, alt:"" };
+        markDirty();
+        renderCoverControls();
+      } finally {
+        coverInput.value = "";
+      }
+    }));
+
+    coverAltInput.addEventListener("input", () => {
+      if (!state.project.coverImage) return;
+      state.project.coverImage.alt = coverAltInput.value;
+      markDirty();
+    });
+
+    removeCoverButton.addEventListener("click", () => {
+      delete state.project.coverImage;
+      markDirty();
+      renderCoverControls();
+    });
 
     projectSelect.addEventListener("change", () => {
       const project = state.projects.find((item) => item.slug === projectSelect.value);
@@ -1308,23 +1491,70 @@ function renderPortfolioDashboard(root) {
       if (mayReplaceForm()) setProject(emptyProject());
     });
 
-    mediaInput.addEventListener("change", () => withAction(mediaInput, async () => {
-      for (const file of mediaInput.files) {
-        const response = await fetch("/api/portfolio/media", {
-          method:"POST", headers:{ "content-type":file.type, "x-file-name":encodeURIComponent(file.name) }, body:file,
-        });
-        const stored = await response.json();
-        if (!response.ok) throw new Error(stored.error || "Upload failed");
-        state.project.media.push(stored.kind === "image"
-          ? { kind:"image", src:stored.src, caption:"", alt:"" }
-          : { kind:"video", src:stored.src, caption:"" });
+    async function uploadMediaFiles(files) {
+      let firstPosterWarning = "";
+      for (const file of files) {
+        const stored = await uploadPortfolioFile(file);
+        const item = stored.kind === "image"
+          ? { kind:"image", src:stored.src, caption:"", alt:"", size:"full" }
+          : { kind:"video", src:stored.src, caption:"", size:"full" };
+        state.project.media.push(item);
         state.dirty = true;
         renderMediaRows();
         schedulePreview();
+        if (item.kind === "video") {
+          try { await generateVideoPoster(item); }
+          catch (error) { if (!firstPosterWarning) firstPosterWarning = error.message; }
+        }
       }
-      mediaInput.value = "";
-      setStatus("Media uploaded", "ok");
+      setStatus(
+        firstPosterWarning ? "Media uploaded; thumbnail warning: " + firstPosterWarning : "Media uploaded",
+        firstPosterWarning ? "error" : "ok",
+      );
+    }
+
+    mediaInput.addEventListener("change", () => withAction(mediaInput, async () => {
+      const files = Array.from(mediaInput.files);
+      try { await uploadMediaFiles(files); }
+      finally { mediaInput.value = ""; }
     }));
+
+    const hasDraggedFiles = (event) => Array.from(event.dataTransfer?.types || []).includes("Files");
+    let mediaDragDepth = 0;
+
+    function resetMediaDrag() {
+      mediaDragDepth = 0;
+      mediaArea.classList.remove("drag-active");
+    }
+
+    document.body.addEventListener("dragenter", (event) => {
+      if (!hasDraggedFiles(event)) return;
+      event.preventDefault();
+      mediaDragDepth += 1;
+      mediaArea.classList.add("drag-active");
+    });
+
+    document.body.addEventListener("dragover", (event) => {
+      if (!hasDraggedFiles(event)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      mediaArea.classList.add("drag-active");
+    });
+
+    document.body.addEventListener("dragleave", (event) => {
+      if (!hasDraggedFiles(event)) return;
+      mediaDragDepth = Math.max(0, mediaDragDepth - 1);
+      if (mediaDragDepth === 0) mediaArea.classList.remove("drag-active");
+    });
+
+    document.body.addEventListener("drop", (event) => {
+      const isFileDrop = hasDraggedFiles(event);
+      const files = isFileDrop ? Array.from(event.dataTransfer.files) : [];
+      resetMediaDrag();
+      if (!isFileDrop) return;
+      event.preventDefault();
+      return withAction(mediaInput, () => uploadMediaFiles(files));
+    });
 
     loadDraftButton.addEventListener("click", () => withAction(loadDraftButton, async () => {
       if (!draftSelect.value || !mayReplaceForm()) return;
@@ -1369,9 +1599,12 @@ function renderPortfolioDashboard(root) {
     });
 
     Promise.all([requestJson("/api/portfolio"), refreshDrafts()])
-      .then(([portfolio]) => {
+      .then(async ([portfolio, draftFile]) => {
         state.projects = portfolio.projects;
-        setProject(state.projects[0] || emptyProject());
+        const draftProject = draftFile
+          ? await requestJson("/api/portfolio/draft?file=" + encodeURIComponent(draftFile)).then((result) => result.project, () => null)
+          : null;
+        setProject(draftProject || state.projects[0] || emptyProject());
       })
       .catch((error) => setStatus(error.message, "error"));
   </script>
@@ -1495,8 +1728,37 @@ export function createServer(root, { mode = "article" } = {}) {
           const fileName = decodeURIComponent(url.pathname.slice("/portfolio/".length));
           const src = normalizePortfolioSrc(`/portfolio/${fileName}`, "media.src");
           const extension = path.extname(src).toLowerCase();
-          response.writeHead(200, { "content-type": PORTFOLIO_MEDIA_TYPES.get(extension)[1] });
-          response.end(fs.readFileSync(path.join(root, "public", "portfolio", fileName)));
+          const content = fs.readFileSync(path.join(root, "public", "portfolio", fileName));
+          const range = /^bytes=(\d*)-(\d*)$/.exec(String(request.headers.range ?? ""));
+          let start = 0;
+          let end = content.length - 1;
+          let statusCode = 200;
+          if (range && (range[1] || range[2])) {
+            const requestedStart = range[1] ? Number(range[1]) : null;
+            const requestedEnd = range[2] ? Number(range[2]) : null;
+            if ((requestedStart !== null && !Number.isSafeInteger(requestedStart))
+              || (requestedEnd !== null && !Number.isSafeInteger(requestedEnd))) {
+              response.writeHead(416, { "accept-ranges":"bytes", "content-range":`bytes */${content.length}`, "content-length":"0" });
+              response.end();
+              return;
+            }
+            start = requestedStart ?? Math.max(0, content.length - requestedEnd);
+            end = requestedStart === null ? end : Math.min(requestedEnd ?? end, end);
+            if (start >= content.length || end < start) {
+              response.writeHead(416, { "accept-ranges":"bytes", "content-range":`bytes */${content.length}`, "content-length":"0" });
+              response.end();
+              return;
+            }
+            statusCode = 206;
+          }
+          const headers = {
+            "accept-ranges":"bytes",
+            "content-length":String(end - start + 1),
+            "content-type":PORTFOLIO_MEDIA_TYPES.get(extension)[1],
+          };
+          if (statusCode === 206) headers["content-range"] = `bytes ${start}-${end}/${content.length}`;
+          response.writeHead(statusCode, headers);
+          response.end(content.subarray(start, end + 1));
           return;
         } catch {
           response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });

@@ -1,9 +1,9 @@
 import fs from "fs";
 import path from "path";
 import matter from "gray-matter";
-import { type PostCategory } from "@/lib/categories";
 import { createPostExcerpt } from "@/lib/post-excerpt.mjs";
-export { POST_CATEGORIES, type PostCategory } from "@/lib/categories";
+
+type PostCategory = "founder-notes" | "engineering" | "life";
 
 const postsDirectory = path.join(process.cwd(), "content/posts");
 
@@ -74,10 +74,6 @@ export function getAllSlugs(): string[] {
     .map((fileName) => fileName.replace(/\.mdx$/, ""));
 }
 
-export function getPostsByCategory(category: PostCategory): PostMeta[] {
-  return getAllPosts().filter((post) => post.frontmatter.category === category);
-}
-
 export function getPostsByYear(): Record<string, PostMeta[]> {
   const posts = getAllPosts();
   const byYear: Record<string, PostMeta[]> = {};
@@ -91,30 +87,4 @@ export function getPostsByYear(): Record<string, PostMeta[]> {
   });
 
   return byYear;
-}
-
-export function getGraphData(): { nodes: { id: string; category: string; title: string }[]; links: { source: string; target: string }[] } {
-  const posts = getAllPosts();
-
-  const nodes = posts.map((post) => ({
-    id: post.slug,
-    category: post.frontmatter.category,
-    title: post.frontmatter.title,
-  }));
-
-  const links: { source: string; target: string }[] = [];
-  const slugSet = new Set(posts.map((p) => p.slug));
-
-  posts.forEach((post) => {
-    post.frontmatter.links.forEach((linkedSlug) => {
-      if (slugSet.has(linkedSlug)) {
-        links.push({
-          source: post.slug,
-          target: linkedSlug,
-        });
-      }
-    });
-  });
-
-  return { nodes, links };
 }

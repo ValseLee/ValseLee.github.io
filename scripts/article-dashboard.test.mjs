@@ -38,9 +38,10 @@ test("normalizePortfolioProject preserves ordered image and video media", () => 
     name: " Loutine ",
     period: " 2025.01 — Present ",
     descriptionMarkdown: "## Project description",
+    coverImage: { src: "/portfolio/cover.webp", alt: " Project cover " },
     media: [
       { kind: "image", src: "/portfolio/home.png", caption: " Home ", alt: " Home screen " },
-      { kind: "video", src: "/portfolio/demo.mp4", caption: " Demo ", alt: "discard me" },
+      { kind: "video", src: "/portfolio/demo.mp4", caption: " Demo ", size: "mini", posterSrc: "/portfolio/demo-poster.jpg", alt: "discard me" },
     ],
   });
 
@@ -49,9 +50,10 @@ test("normalizePortfolioProject preserves ordered image and video media", () => 
     name: "Loutine",
     period: "2025.01 — Present",
     descriptionMarkdown: "## Project description",
+    coverImage: { src: "/portfolio/cover.webp", alt: "Project cover" },
     media: [
-      { kind: "image", src: "/portfolio/home.png", caption: "Home", alt: "Home screen" },
-      { kind: "video", src: "/portfolio/demo.mp4", caption: "Demo" },
+      { kind: "image", src: "/portfolio/home.png", caption: "Home", alt: "Home screen", size: "full" },
+      { kind: "video", src: "/portfolio/demo.mp4", caption: "Demo", size: "mini", posterSrc: "/portfolio/demo-poster.jpg" },
     ],
   });
 });
@@ -83,6 +85,45 @@ test("normalizePortfolioProject rejects invalid project fields", () => {
   for (const [input, error] of cases) assert.throws(() => normalizePortfolioProject(input), error);
   assert.throws(() => normalizePortfolioProject(null), /project/i);
   assert.throws(() => normalizePortfolioContent({ projects: [valid, valid] }), /duplicate.*slug/i);
+});
+
+test("normalizePortfolioProject accepts an omitted cover and rejects invalid covers", () => {
+  const valid = portfolioProject();
+  assert.equal(Object.hasOwn(normalizePortfolioProject(valid), "coverImage"), false);
+  for (const [coverImage, error] of [
+    [null, /coverImage/i],
+    [[], /coverImage/i],
+    [{ src: "/portfolio/cover.webp", alt: "" }, /coverImage\.alt/i],
+    [{ src: "/portfolio/demo.mp4", alt: "Demo" }, /coverImage\.src.*image/i],
+    [{ src: "/portfolio/cover.txt", alt: "Cover" }, /coverImage\.src/i],
+    [{ src: "/portfolio/../cover.png", alt: "Cover" }, /coverImage\.src/i],
+  ]) assert.throws(() => normalizePortfolioProject({ ...valid, coverImage }), error);
+});
+
+test("normalizePortfolioProject validates media sizes and video posters", () => {
+  const valid = portfolioProject();
+  const sizes = ["mini", "small", "medium", "large", "full"];
+  const normalized = normalizePortfolioProject({
+    ...valid,
+    media: sizes.map((size) => ({
+      kind: "image", src: "/portfolio/home.png", caption: size, alt: size, size,
+    })),
+  });
+  assert.deepEqual(normalized.media.map(({ size }) => size), sizes);
+
+  for (const size of ["", "50%", "wide", 65, null]) {
+    assert.throws(() => normalizePortfolioProject({
+      ...valid,
+      media: [{ kind: "image", src: "/portfolio/home.png", caption: "Home", alt: "Home", size }],
+    }), /media\[0\]\.size/i);
+  }
+
+  for (const media of [
+    { kind: "image", src: "/portfolio/home.png", caption: "Home", alt: "Home", posterSrc: "/portfolio/poster.jpg" },
+    { kind: "video", src: "/portfolio/demo.mp4", caption: "Demo", posterSrc: "" },
+    { kind: "video", src: "/portfolio/demo.mp4", caption: "Demo", posterSrc: "/portfolio/poster.mp4" },
+    { kind: "video", src: "/portfolio/demo.mp4", caption: "Demo", posterSrc: "/portfolio/../poster.jpg" },
+  ]) assert.throws(() => normalizePortfolioProject({ ...valid, media: [media] }), /media\[0\]\.posterSrc/i);
 });
 
 test("savePortfolioMedia stores MP4 uploads and suffixes collisions", (t) => {
@@ -158,7 +199,14 @@ test("portfolio drafts round-trip and failed replacement preserves the previous 
     name: "Loutine",
     period: "2025",
     descriptionMarkdown: "Description",
-    media: [{ kind: "video", src: "/portfolio/demo.mp4", caption: "Demo" }],
+    coverImage: { src: "/portfolio/cover.png", alt: "Cover" },
+    media: [{
+      kind: "video",
+      src: "/portfolio/demo.mp4",
+      caption: "Demo",
+      size: "large",
+      posterSrc: "/portfolio/demo-poster.jpg",
+    }],
   };
 
   const saved = savePortfolioDraft(project, root, new Date("2026-07-21T00:00:00.000Z"));
@@ -236,7 +284,9 @@ test("publishPortfolioProject updates by slug and stages only canonical JSON and
     projects: [portfolioProject({ slug: "first", name: "First" }), portfolioProject({ slug: "loutine", name: "Old" })],
   });
   fs.mkdirSync(path.join(root, "public", "portfolio"), { recursive: true });
+  fs.writeFileSync(path.join(root, "public", "portfolio", "cover.png"), "cover");
   fs.writeFileSync(path.join(root, "public", "portfolio", "demo.mp4"), "mp4");
+  fs.writeFileSync(path.join(root, "public", "portfolio", "demo-poster.jpg"), "poster");
   const calls = [];
   const runner = async (command, args, cwd) => {
     calls.push({ command, args, cwd });
@@ -248,7 +298,18 @@ test("publishPortfolioProject updates by slug and stages only canonical JSON and
   );
 
   const result = await publishPortfolioProject(
-    portfolioProject({ slug: "loutine", name: "Loutine", media: [{ kind: "video", src: "/portfolio/demo.mp4", caption: "Demo" }] }),
+    portfolioProject({
+      slug: "loutine",
+      name: "Loutine",
+      coverImage: { src: "/portfolio/cover.png", alt: "Cover" },
+      media: [{
+        kind: "video",
+        src: "/portfolio/demo.mp4",
+        caption: "Demo",
+        size: "large",
+        posterSrc: "/portfolio/demo-poster.jpg",
+      }],
+    }),
     root,
     new Date("2026-07-21T00:00:00.000Z"),
     runner,
@@ -257,10 +318,10 @@ test("publishPortfolioProject updates by slug and stages only canonical JSON and
   assert.equal(result.committed, true);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, "content", "portfolio.json"), "utf8")).projects.map(({ slug }) => slug), ["first", "loutine"]);
   assert.deepEqual(calls.map(({ command, args, cwd }) => [command, args, cwd]), [
-    ["git", ["diff", "--cached", "--quiet", "--", "content/portfolio.json", "public/portfolio/demo.mp4"], root],
+    ["git", ["diff", "--cached", "--quiet", "--", "content/portfolio.json", "public/portfolio/cover.png", "public/portfolio/demo.mp4", "public/portfolio/demo-poster.jpg"], root],
     ["npm", ["run", "build"], root],
-    ["git", ["add", "--", "content/portfolio.json", "public/portfolio/demo.mp4"], root],
-    ["git", ["commit", "--only", "-m", "2026-07-21 update portfolio - Loutine", "--", "content/portfolio.json", "public/portfolio/demo.mp4"], root],
+    ["git", ["add", "--", "content/portfolio.json", "public/portfolio/cover.png", "public/portfolio/demo.mp4", "public/portfolio/demo-poster.jpg"], root],
+    ["git", ["commit", "--only", "-m", "2026-07-21 update portfolio - Loutine", "--", "content/portfolio.json", "public/portfolio/cover.png", "public/portfolio/demo.mp4", "public/portfolio/demo-poster.jpg"], root],
     ["git", ["push"], root],
   ]);
 });
@@ -378,12 +439,14 @@ test("portfolio mode serves the local dashboard and portfolio JSON APIs", async 
   const dashboard = await fetch(`${origin}/`);
   const html = await dashboard.text();
   assert.equal(dashboard.status, 200);
-  for (const id of ["project-select", "new-project", "name", "period-start", "period-end", "period-present", "description-markdown", "media-input", "media-rows", "draft-select", "load-draft", "save-draft", "publish", "preview", "status", "command-log"]) {
+  for (const id of ["project-select", "new-project", "name", "period-start", "period-end", "period-present", "cover-input", "cover-preview", "cover-alt", "remove-cover", "description-markdown", "media-area", "media-input", "media-rows", "draft-select", "load-draft", "save-draft", "publish", "preview", "status", "command-log"]) {
     assert.match(html, new RegExp(`id=["']${id}["']`));
   }
+  assert.match(html, /id="media-area" class="media-drop-area"/);
   assert.match(html, /<input id="period-start" type="date" required/);
   assert.match(html, /<input id="period-end" type="date" required/);
   assert.match(html, /<input id="period-present" type="checkbox"/);
+  assert.match(html, /id="cover-input" type="file" accept="image\/\*"/);
   assert.doesNotMatch(html, /id="article-form"/);
   const browserScript = html.match(/<script>([\s\S]*?)<\/script>/);
   assert.ok(browserScript);
@@ -411,17 +474,35 @@ test("portfolio mode serves the local dashboard and portfolio JSON APIs", async 
   assert.deepEqual(loaded.project, project);
 });
 
-test("portfolio period controls retain their browser behavior", async (t) => {
-  const project = portfolioProject({ period: "2026.01.02 — 2026.07.21" });
-  const root = createPortfolioRoot(t, { projects: [project] });
+test("portfolio controls retain browser behavior", async (t) => {
+  const draftProject = portfolioProject({
+    period: "2026.01.02 — 2026.07.21",
+    coverImage: { src: "/portfolio/old-cover.png", alt: "Old cover" },
+    media: [{
+      kind: "video",
+      src: "/portfolio/demo.mp4",
+      caption: "Demo",
+      size: "small",
+      posterSrc: "/portfolio/old-poster.jpg",
+    }],
+  });
+  const initialCanonicalProject = portfolioProject({
+    ...draftProject,
+    media: [{ kind: "video", src: "/portfolio/demo.mp4", caption: "Demo", size: "full" }],
+  });
+  const root = createPortfolioRoot(t, { projects: [initialCanonicalProject] });
   const origin = await startPortfolioServer(t, root);
   const html = await (await fetch(`${origin}/`)).text();
   const browserScript = html.match(/<script>([\s\S]*?)<\/script>/);
   assert.ok(browserScript);
 
-  const createElement = () => {
+  let posterMode = "success";
+  const drawnFrames = [];
+  const createElement = (tagName = "div") => {
     const listeners = new Map();
-    return {
+    const classes = new Set();
+    const element = {
+      tagName: tagName.toUpperCase(),
       value: "",
       checked: false,
       disabled: false,
@@ -430,13 +511,48 @@ test("portfolio period controls retain their browser behavior", async (t) => {
       files: [],
       children: [],
       style: {},
+      classList: {
+        add(...names) { names.forEach((name) => classes.add(name)); },
+        remove(...names) { names.forEach((name) => classes.delete(name)); },
+        contains(name) { return classes.has(name); },
+      },
       addEventListener(type, listener) { listeners.set(type, listener); },
-      dispatch(type) { return listeners.get(type)?.({ preventDefault() {} }); },
+      removeEventListener(type, listener) { if (listeners.get(type) === listener) listeners.delete(type); },
+      dispatch(type, event = {}) { return listeners.get(type)?.({ type, preventDefault() {}, ...event }); },
+      listenerCount() { return listeners.size; },
       append(...children) { this.children.push(...children); },
       replaceChildren(...children) { this.children = children; },
     };
+    if (tagName === "video") {
+      element.videoWidth = 1280;
+      element.videoHeight = 720;
+      element.load = () => queueMicrotask(() => {
+        const mediaFailures = {
+          abort: ["abort", null],
+          network: ["error", { code: 2, message: "connection lost" }],
+          decode: ["error", { code: 3, message: "decoder rejected frame" }],
+          unsupported: ["error", { code: 4, message: "codec unavailable" }],
+        };
+        const failure = mediaFailures[posterMode];
+        element.error = failure?.[1] ?? null;
+        element.dispatch(failure?.[0] || (element.src.includes("/warning-") ? "error" : "loadeddata"));
+      });
+    }
+    if (tagName === "canvas") {
+      element.getContext = () => {
+        if (posterMode === "canvas") throw new Error("canvas failed");
+        return { drawImage(video, x, y, width, height) { drawnFrames.push({ video, x, y, width, height }); } };
+      };
+      element.toBlob = (callback, type) => callback(posterMode === "null-blob" ? null : { type });
+    }
+    return element;
   };
-  const selectors = ["portfolio-form", "project-select", "new-project", "name", "period-start", "period-end", "period-present", "description-markdown", "media-input", "media-rows", "draft-select", "load-draft", "save-draft", "publish", "preview", "status", "command-log"];
+
+  class FakeFile {
+    constructor(parts, name, options) { this.parts = parts; this.name = name; this.type = options.type; }
+  }
+  const body = createElement();
+  const selectors = ["portfolio-form", "project-select", "new-project", "name", "period-start", "period-end", "period-present", "cover-input", "cover-preview", "cover-alt", "remove-cover", "description-markdown", "media-area", "media-input", "media-rows", "draft-select", "load-draft", "save-draft", "publish", "preview", "status", "command-log"];
   const elements = new Map(selectors.map((id) => [`#${id}`, createElement()]));
   let formValid = false;
   let validityChecks = 0;
@@ -446,14 +562,41 @@ test("portfolio period controls retain their browser behavior", async (t) => {
   };
   let confirmCalls = 0;
   const requests = [];
-  let canonicalProject = project;
+  let canonicalProject = initialCanonicalProject;
   let publishCount = 0;
   const browserFetch = async (url, options = {}) => {
     requests.push({ url, options });
     let result;
+    let responseOk = true;
     if (url === "/api/portfolio") result = { ok: true, projects: [canonicalProject] };
-    else if (url === "/api/portfolio/drafts") result = { ok: true, drafts: [] };
+    else if (url === "/api/portfolio/drafts") {
+      result = { ok: true, drafts: [{ fileName: "loutine.json", name: "Loutine", updatedAt: "2026-07-22T12:50:21.312Z" }] };
+    }
+    else if (url === "/api/portfolio/draft?file=loutine.json") result = { ok: true, project: draftProject };
     else if (url === "/api/portfolio/preview") result = { ok: true, html: "<p>preview</p>" };
+    else if (url === "/api/portfolio/media") {
+      const fileName = decodeURIComponent(options.headers["x-file-name"]);
+      if (fileName === "rejected.mp4") {
+        result = { ok: true, kind: "video", src: "/portfolio/rejected.mp4" };
+      } else if (fileName === "new-cover.png") {
+        result = { ok: true, kind: "image", src: "/portfolio/new-cover.png" };
+      } else if (fileName === "bad.txt") {
+        responseOk = false;
+        result = { ok: false, error: "unsupported portfolio media file" };
+      } else if (fileName.endsWith("-poster.jpg")) {
+        if (posterMode === "upload") {
+          responseOk = false;
+          result = { ok: false, error: "poster upload failed" };
+        } else if (posterMode === "malformed") {
+          result = { ok: true, kind: "video", src: "/portfolio/not-an-image.mp4" };
+        } else {
+          result = { ok: true, kind: "image", src: `/portfolio/${fileName}` };
+        }
+      } else {
+        const kind = fileName.endsWith(".mp4") ? "video" : "image";
+        result = { ok: true, kind, src: `/portfolio/${fileName}` };
+      }
+    }
     else if (url === "/api/portfolio/draft" && options.method === "POST") {
       const submitted = JSON.parse(options.body);
       result = { ok: true, project: { ...submitted, slug: submitted.slug || "stable-project" } };
@@ -468,15 +611,17 @@ test("portfolio period controls retain their browser behavior", async (t) => {
           : { ok: false, committed: false, error: "build failed", logs: [] };
     }
     else throw new Error(`Unexpected browser request: ${url}`);
-    return { ok: true, status: 200, json: async () => result };
+    return { ok: responseOk, status: responseOk ? 200 : 400, json: async () => result };
   };
 
   vm.runInNewContext(browserScript[1], {
     document: {
+      body,
       querySelector: (selector) => elements.get(selector),
       createElement,
     },
     fetch: browserFetch,
+    File: FakeFile,
     confirm: () => { confirmCalls += 1; return false; },
     structuredClone,
     clearTimeout() {},
@@ -488,17 +633,83 @@ test("portfolio period controls retain their browser behavior", async (t) => {
   const start = elements.get("#period-start");
   const end = elements.get("#period-end");
   const present = elements.get("#period-present");
+  const coverInput = elements.get("#cover-input");
+  const coverPreview = elements.get("#cover-preview");
+  const coverAlt = elements.get("#cover-alt");
+  const removeCover = elements.get("#remove-cover");
   const preview = elements.get("#preview");
+  const mediaRows = elements.get("#media-rows");
+  const mediaPaths = () => mediaRows.children.map((row) => row.children[1].textContent);
+  const sizeControl = (row) => row.children.find(({ className }) => className === "media-size-field").children[0];
+  const thumbnailButton = (row) => row.children.at(-1).children.find(({ textContent }) => textContent === "Generate Thumbnail");
   assert.deepEqual(
     { start: start.value, end: end.value, present: present.checked, min: end.min, disabled: end.disabled, required: end.required },
     { start: "2026-01-02", end: "2026-07-21", present: false, min: "2026-01-02", disabled: false, required: true },
   );
 
+  assert.equal(mediaRows.children[0].style.width, "45%");
+  assert.equal(mediaRows.children[0].style.marginInline, "auto");
+  assert.equal(mediaRows.children[0].children[0].poster, "/portfolio/old-poster.jpg");
+  assert.deepEqual(sizeControl(mediaRows.children[0]).children.map(({ value }) => value), ["mini", "small", "medium", "large", "full"]);
+
+  sizeControl(mediaRows.children[0]).value = "medium";
+  sizeControl(mediaRows.children[0]).dispatch("change");
+  assert.equal(mediaRows.children[0].style.width, "65%");
+  assert.equal(preview.children[4].style.width, "65%");
+  assert.equal(preview.children[4].style.marginInline, "auto");
+
+  await thumbnailButton(mediaRows.children[0]).dispatch("click");
+  const drawnFrame = drawnFrames.at(-1);
+  assert.deepEqual(
+    { x: drawnFrame.x, y: drawnFrame.y, width: drawnFrame.width, height: drawnFrame.height },
+    { x: 0, y: 0, width: 1280, height: 720 },
+  );
+  assert.equal(drawnFrame.video.listenerCount(), 0);
+  const posterRequest = requests.filter(({ url, options }) =>
+    url === "/api/portfolio/media" && decodeURIComponent(options.headers["x-file-name"]) === "demo-poster.jpg").at(-1);
+  assert.equal(posterRequest.options.headers["content-type"], "image/jpeg");
+  assert.equal(mediaRows.children[0].children[0].poster, "/portfolio/demo-poster.jpg");
+
+  const mediaFailures = {
+    abort: "Thumbnail video load aborted for /portfolio/demo.mp4",
+    network: "Thumbnail video network error (code 2) for /portfolio/demo.mp4: connection lost",
+    decode: "Thumbnail video decode error (code 3) for /portfolio/demo.mp4: decoder rejected frame",
+    unsupported: "Thumbnail video source unsupported (code 4) for /portfolio/demo.mp4: codec unavailable",
+  };
+  for (const [mode, message] of Object.entries(mediaFailures)) {
+    posterMode = mode;
+    await thumbnailButton(mediaRows.children[0]).dispatch("click");
+    assert.equal(mediaRows.children[0].children[0].poster, "/portfolio/demo-poster.jpg");
+    assert.equal(elements.get("#status").textContent, message);
+  }
+
+  for (const mode of ["canvas", "null-blob", "upload", "malformed"]) {
+    posterMode = mode;
+    await thumbnailButton(mediaRows.children[0]).dispatch("click");
+    assert.equal(mediaRows.children[0].children[0].poster, "/portfolio/demo-poster.jpg");
+    assert.match(elements.get("#status").textContent, /thumbnail|poster|canvas/i);
+  }
+  posterMode = "success";
+
+  coverInput.files = [{ name: "rejected.mp4", type: "video/mp4" }];
+  await coverInput.dispatch("change");
+  assert.equal(coverPreview.children[0].src, "/portfolio/old-cover.png");
+
+  coverInput.files = [{ name: "new-cover.png", type: "image/png" }];
+  await coverInput.dispatch("change");
+  assert.equal(coverPreview.children[0].src, "/portfolio/new-cover.png");
+  assert.equal(coverAlt.required, true);
+  assert.equal(coverAlt.value, "");
+
+  coverAlt.value = "New cover";
+  coverAlt.dispatch("input");
+  assert.equal(preview.children[0].src, "/portfolio/new-cover.png");
+
   start.value = "2026-02-03";
   start.dispatch("input");
   end.value = "2026-08-22";
   end.dispatch("input");
-  assert.equal(preview.children[1].textContent, "2026.02.03 — 2026.08.22");
+  assert.equal(preview.children[2].textContent, "2026.02.03 — 2026.08.22");
   elements.get("#new-project").dispatch("click");
   assert.equal(confirmCalls, 1);
   assert.equal(start.value, "2026-02-03");
@@ -506,12 +717,12 @@ test("portfolio period controls retain their browser behavior", async (t) => {
   end.value = "2026-01-01";
   end.dispatch("input");
   assert.equal(end.min, "2026-02-03");
-  assert.equal(preview.children[1].textContent, "");
+  assert.equal(preview.children[2].textContent, "");
 
   present.checked = true;
   present.dispatch("change");
   assert.deepEqual(
-    { end: end.value, disabled: end.disabled, required: end.required, preview: preview.children[1].textContent },
+    { end: end.value, disabled: end.disabled, required: end.required, preview: preview.children[2].textContent },
     { end: "", disabled: true, required: false, preview: "2026.02.03 — Present" },
   );
 
@@ -526,6 +737,130 @@ test("portfolio period controls retain their browser behavior", async (t) => {
   assert.equal(validityChecks, 2);
   assert.equal(draftPosts().length, 1);
   assert.equal(JSON.parse(draftPosts()[0].options.body).period, "2026.02.03 — Present");
+  const coverDraft = JSON.parse(draftPosts().at(-1).options.body);
+  assert.deepEqual(coverDraft.coverImage, { src: "/portfolio/new-cover.png", alt: "New cover" });
+  assert.equal(coverDraft.media.length, 1);
+
+  const mediaArea = elements.get("#media-area");
+  const mediaInput = elements.get("#media-input");
+  const dropped = {
+    types: ["Files"],
+    files: [
+      { name: "drop-one.png", type: "image/png" },
+      { name: "drop-two.mp4", type: "video/mp4" },
+    ],
+    dropEffect: "none",
+  };
+
+  body.dispatch("dragenter", { dataTransfer: dropped });
+  body.dispatch("dragenter", { dataTransfer: dropped });
+  assert.equal(mediaArea.classList.contains("drag-active"), true);
+  assert.equal(body.classList.contains("drag-active"), false);
+  assert.equal(coverPreview.classList.contains("drag-active"), false);
+  let overPrevented = false;
+  body.dispatch("dragover", {
+    dataTransfer: dropped,
+    preventDefault() { overPrevented = true; },
+  });
+  assert.deepEqual({ overPrevented, dropEffect: dropped.dropEffect }, { overPrevented: true, dropEffect: "copy" });
+  body.dispatch("dragleave", { dataTransfer: dropped });
+  assert.equal(mediaArea.classList.contains("drag-active"), true);
+  body.dispatch("dragleave", { dataTransfer: dropped });
+  assert.equal(mediaArea.classList.contains("drag-active"), false);
+  body.dispatch("dragenter", { dataTransfer: dropped });
+
+  let dropPrevented = false;
+  await body.dispatch("drop", {
+    dataTransfer: dropped,
+    target: coverPreview,
+    preventDefault() { dropPrevented = true; },
+  });
+  assert.equal(dropPrevented, true);
+  assert.equal(mediaArea.classList.contains("drag-active"), false);
+  assert.deepEqual(mediaPaths(), [
+    "/portfolio/demo.mp4",
+    "/portfolio/drop-one.png",
+    "/portfolio/drop-two.mp4",
+  ]);
+  assert.equal(coverPreview.children[0].src, "/portfolio/new-cover.png");
+
+  const partial = {
+    types: ["Files"],
+    files: [
+      { name: "kept.png", type: "image/png" },
+      { name: "bad.txt", type: "text/plain" },
+      { name: "skipped.mp4", type: "video/mp4" },
+    ],
+    dropEffect: "none",
+  };
+  body.dispatch("dragenter", { dataTransfer: partial });
+  await body.dispatch("drop", { dataTransfer: partial, preventDefault() {} });
+  assert.equal(mediaArea.classList.contains("drag-active"), false);
+  assert.deepEqual(mediaPaths().slice(-1), ["/portfolio/kept.png"]);
+  assert.match(elements.get("#status").textContent, /unsupported portfolio media file/);
+  const uploadedNames = () => requests
+    .filter(({ url }) => url === "/api/portfolio/media")
+    .map(({ options }) => decodeURIComponent(options.headers["x-file-name"]));
+  const ordinaryUploadedNames = () => uploadedNames().filter((name) => !name.endsWith("-poster.jpg"));
+  assert.deepEqual(ordinaryUploadedNames().slice(-4), ["drop-one.png", "drop-two.mp4", "kept.png", "bad.txt"]);
+  assert.equal(ordinaryUploadedNames().includes("skipped.mp4"), false);
+
+  mediaInput.files = [
+    { name: "input.png", type: "image/png" },
+    { name: "input.mp4", type: "video/mp4" },
+  ];
+  await mediaInput.dispatch("change");
+  assert.equal(mediaInput.value, "");
+  assert.deepEqual(mediaPaths().slice(-2), ["/portfolio/input.png", "/portfolio/input.mp4"]);
+  assert.deepEqual(ordinaryUploadedNames().slice(-2), ["input.png", "input.mp4"]);
+
+  const warningBatch = {
+    types: ["Files"],
+    files: [
+      { name: "warning-first.mp4", type: "video/mp4" },
+      { name: "after-warning.png", type: "image/png" },
+      { name: "warning-second.mp4", type: "video/mp4" },
+      { name: "later.mp4", type: "video/mp4" },
+    ],
+    dropEffect: "none",
+  };
+  body.dispatch("dragenter", { dataTransfer: warningBatch });
+  await body.dispatch("drop", { dataTransfer: warningBatch, preventDefault() {} });
+  assert.deepEqual(mediaPaths().slice(-4), [
+    "/portfolio/warning-first.mp4",
+    "/portfolio/after-warning.png",
+    "/portfolio/warning-second.mp4",
+    "/portfolio/later.mp4",
+  ]);
+  assert.match(elements.get("#status").textContent, /warning.*warning-first\.mp4/i);
+  assert.doesNotMatch(elements.get("#status").textContent, /warning-second\.mp4/i);
+  assert.equal(uploadedNames().includes("warning-first-poster.jpg"), false);
+  assert.equal(uploadedNames().includes("warning-second-poster.jpg"), false);
+  assert.equal(uploadedNames().includes("later-poster.jpg"), true);
+  assert.equal(coverPreview.children[0].src, "/portfolio/new-cover.png");
+
+  elements.get("#save-draft").dispatch("click");
+  await settle();
+  const mediaDraft = JSON.parse(draftPosts().at(-1).options.body);
+  assert.deepEqual(mediaDraft.coverImage, { src: "/portfolio/new-cover.png", alt: "New cover" });
+  assert.deepEqual(mediaDraft.media.map(({ kind, src, size, posterSrc }) => ({ kind, src, size, ...(posterSrc ? { posterSrc } : {}) })), [
+    { kind: "video", src: "/portfolio/demo.mp4", size: "medium", posterSrc: "/portfolio/demo-poster.jpg" },
+    { kind: "image", src: "/portfolio/drop-one.png", size: "full" },
+    { kind: "video", src: "/portfolio/drop-two.mp4", size: "full", posterSrc: "/portfolio/drop-two-poster.jpg" },
+    { kind: "image", src: "/portfolio/kept.png", size: "full" },
+    { kind: "image", src: "/portfolio/input.png", size: "full" },
+    { kind: "video", src: "/portfolio/input.mp4", size: "full", posterSrc: "/portfolio/input-poster.jpg" },
+    { kind: "video", src: "/portfolio/warning-first.mp4", size: "full" },
+    { kind: "image", src: "/portfolio/after-warning.png", size: "full" },
+    { kind: "video", src: "/portfolio/warning-second.mp4", size: "full" },
+    { kind: "video", src: "/portfolio/later.mp4", size: "full", posterSrc: "/portfolio/later-poster.jpg" },
+  ]);
+
+  removeCover.dispatch("click");
+  assert.equal(coverAlt.disabled, true);
+  assert.match(coverPreview.children[0].textContent, /No cover/i);
+  elements.get("#save-draft").dispatch("click");
+  await settle();
 
   elements.get("#new-project").dispatch("click");
   const name = elements.get("#name");
@@ -571,7 +906,7 @@ test("portfolio period controls retain their browser behavior", async (t) => {
 test("portfolio mode stores and serves MP4 media and rejects cross-origin POST", async (t) => {
   const root = createPortfolioRoot(t, { projects: [] });
   const origin = await startPortfolioServer(t, root);
-  const media = Buffer.from("mp4");
+  const media = Buffer.from("0123456789");
 
   const uploaded = await fetch(`${origin}/api/portfolio/media`, {
     method: "POST",
@@ -588,8 +923,26 @@ test("portfolio mode stores and serves MP4 media and rejects cross-origin POST",
   });
 
   const served = await fetch(`${origin}/portfolio/demo.mp4`);
+  assert.equal(served.status, 200);
   assert.equal(served.headers.get("content-type"), "video/mp4");
+  assert.equal(served.headers.get("accept-ranges"), "bytes");
+  assert.equal(served.headers.get("content-length"), String(media.length));
   assert.deepEqual(Buffer.from(await served.arrayBuffer()), media);
+
+  const ranged = await fetch(`${origin}/portfolio/demo.mp4`, { headers: { Range: "bytes=4-7" } });
+  assert.equal(ranged.status, 206);
+  assert.equal(ranged.headers.get("content-range"), `bytes 4-7/${media.length}`);
+  assert.equal(ranged.headers.get("content-length"), "4");
+  assert.equal(await ranged.text(), "4567");
+
+  const suffix = await fetch(`${origin}/portfolio/demo.mp4`, { headers: { Range: "bytes=-3" } });
+  assert.equal(suffix.status, 206);
+  assert.equal(suffix.headers.get("content-range"), `bytes 7-9/${media.length}`);
+  assert.equal(await suffix.text(), "789");
+
+  const unsatisfiable = await fetch(`${origin}/portfolio/demo.mp4`, { headers: { Range: "bytes=10-" } });
+  assert.equal(unsatisfiable.status, 416);
+  assert.equal(unsatisfiable.headers.get("content-range"), `bytes */${media.length}`);
 
   const rejected = await fetch(`${origin}/api/portfolio/media`, {
     method: "POST",
@@ -662,8 +1015,8 @@ test("portfolio endpoints reject invalid preview Markdown and oversized media be
     });
     request.on("error", reject);
     const chunk = Buffer.alloc(1024 * 1024);
-    for (let index = 0; index < 51; index += 1) request.write(chunk);
-    request.end();
+    for (let index = 0; index < 50; index += 1) request.write(chunk);
+    request.end(Buffer.alloc(1));
   });
 
   assert.equal(streamed.status, 413);

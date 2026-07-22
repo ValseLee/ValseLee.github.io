@@ -2,13 +2,13 @@ const site = {
   identity: {
     name: "Celan",
     role: "iOS Product Engineer",
-    titleText: "제품 기획부터 몰입형 UI까지 만드는 iOS Product Engineer입니다.",
+    titleText: "iOS Product Engineer | Celan",
     title: (
       <>
         안녕하세요,
         <br />
         iOS Product Engineer
-        <br/>
+        <br />
         이승준 입니다.
       </>
     ),
@@ -16,14 +16,23 @@ const site = {
   },
   about: {
     updated: "Updated Jul. 2026",
-    bio: "임팩트 주도형 iOS Product Engineer, 이승준입니다. 제품 기획부터 몰입형 UI 개발까지, 서비스 개발의 전 영역에 적극 참여하고 팀의 성장을 주도합니다.",
-    practice: "AI 에이전트를 활용한 소프트웨어 제품 개발의 접점을 탐구하고 직접 구축합니다. 배운 것을 다시 글로 정리하며 지식을 공유하는 데에 관심이 많습니다.",
+    bio: (
+      <>
+        임팩트 주도형 iOS Product Engineer, 이승준입니다. <br /> 제품 기획부터 몰입형 UI 개발까지, 서비스 개발의 전 영역에 적극 참여하고 팀의 성장을 주도합니다.
+      </>
+    ),
+    practice: (
+      <>
+        AI 에이전트를 활용하여 소프트웨어 서비스를 개발하고, 방법론을 연구합니다. <br />
+        배운 것을 다시 글로 정리하며 지식을 공유하는 데에 관심이 많습니다.
+      </>
+    ),
     principles: ["Build the smallest useful thing.", "Make decisions visible.", "Write to sharpen the work."],
   },
   expertise: [
     { label: "Engineering", items: ["AI Systems", "iOS Software Architecture", "React"] },
     { label: "Product", items: ["Prototyping", "Developer Experience", "Technical Strategy"] },
-    { label: "Writing", items: ["Build Logs", "Engineering Essays", "Translations"] },
+    { label: "Writing", items: ["Engineering Essays", "Translations", "Life"] },
   ],
   experience: [
     {
@@ -31,13 +40,13 @@ const site = {
       organization: "주식회사 피트크루",
       role: "iOS Lead Product Engineer",
       description: (
-      <>
-      - iOS 첫 출시
-      <br />- SQLite 기반 로컬 데이터베이스
-      <br />- 복약 스케줄링 엔진과 테스트 환경 구축
-      <br />- 주간 QA 시간 단축
-      </>
-    ),
+        <>
+          - iOS 첫 출시
+          <br />- SQLite 기반 로컬 데이터베이스
+          <br />- 복약 스케줄링 엔진과 테스트 환경 구축
+          <br />- 주간 QA 시간 단축
+        </>
+      ),
     },
     {
       period: "2024.04.14. - 2025.08.03.(1년 5개월)",
@@ -53,9 +62,9 @@ const site = {
       ),
     },
     {
-      period: "2026.06.19. - 2026.07.31.",
-      organization: "AT Kearney & 전남광주통합특별시",
-      role: "Web Frontend Freelancer",
+      period: "2026.06.19. - 2026.07.31.(8주)",
+      organization: (<>AT Kearney<br />전남광주통합특별시</>),
+      role: "Web Frontend(Freelance)",
       description: (
         <>
           - React·TypeScript 기반 웹 프론트엔드

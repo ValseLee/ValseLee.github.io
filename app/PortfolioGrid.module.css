@@ -1,0 +1,112 @@
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(18px, 2.4vw, 38px);
+}
+
+.card {
+  position: relative;
+  aspect-ratio: 16/10;
+  overflow: hidden;
+  background: #000;
+  color: #fff;
+  text-decoration: none;
+}
+
+.card::after {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  inset: 6px;
+  pointer-events: none;
+  background:
+    linear-gradient(currentColor 0 0) left top / 20px 2px no-repeat,
+    linear-gradient(currentColor 0 0) left top / 2px 20px no-repeat,
+    linear-gradient(currentColor 0 0) right top / 20px 2px no-repeat,
+    linear-gradient(currentColor 0 0) right top / 2px 20px no-repeat,
+    linear-gradient(currentColor 0 0) left bottom / 20px 2px no-repeat,
+    linear-gradient(currentColor 0 0) left bottom / 2px 20px no-repeat,
+    linear-gradient(currentColor 0 0) right bottom / 20px 2px no-repeat,
+    linear-gradient(currentColor 0 0) right bottom / 2px 20px no-repeat;
+  filter: var(--ink-drop-shadow);
+  opacity: 0.3;
+  transition: inset 250ms ease-out, opacity 160ms ease-out;
+}
+
+.card:focus-visible {
+  outline: 1px solid var(--foreground);
+  outline-offset: 4px;
+}
+
+.card:focus-visible::after {
+  inset: 8px;
+  opacity: 1;
+}
+
+.cover {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: clamp(18px, 2.4vw, 32px);
+  background: linear-gradient(transparent 35%, rgb(0 0 0 / 78%));
+  opacity: 1;
+  transform: none;
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.name {
+  font-size: clamp(1.5rem, 3vw, 2.5rem);
+  font-weight: 600;
+  line-height: 1;
+}
+
+.period {
+  margin-top: 8px;
+  font-size: .75rem;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+@media (hover:hover) and (pointer:fine) {
+  .overlay {
+    opacity: 0.3;
+    transform: translateY(12px);
+  }
+
+  .card:hover .overlay,
+  .card:focus-visible .overlay {
+    opacity: 1;
+    transform: none;
+  }
+
+  .card:hover::after {
+    inset: 16px;
+    opacity: 1;
+  }
+}
+
+@media (max-width:760px) {
+  .grid {
+    grid-column: 1/-1;
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion:reduce) {
+  .overlay {
+    transform: none;
+    transition: none;
+  }
+
+  .card::after {
+    transition: none;
+  }
+}

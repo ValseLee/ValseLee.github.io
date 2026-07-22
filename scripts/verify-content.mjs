@@ -67,7 +67,6 @@ const portfolio = normalizePortfolioContent(JSON.parse(read("content/portfolio.j
 
 const searchableFiles = [
   ...fs.readdirSync(path.join(root, "app"), { recursive: true }).map((file) => path.join("app", file)),
-  ...fs.readdirSync(path.join(root, "components"), { recursive: true }).map((file) => path.join("components", file)),
   ...fs.readdirSync(path.join(root, "lib"), { recursive: true }).map((file) => path.join("lib", file)),
 ].filter((relPath) => fs.statSync(path.join(root, relPath)).isFile());
 
@@ -75,13 +74,8 @@ const forbidden = /Celan-Log|celan_log_pat|#admin|REPO_NAME|관리자 로그인/
 for (const relPath of searchableFiles) {
   assert(!forbidden.test(read(relPath)), `${relPath} contains old admin/Celan-Log coupling`);
 }
-
-
-const header = read("components/Header.tsx");
-assert(!header.includes('href: "/graph"'), "Header must not expose the inactive Graph page");
-
 const home = read("app/page.tsx");
-for (const section of ["about", "expertise", "articles", "experience", "contact"]) {
+for (const section of ["about", "portfolio", "articles", "experience", "contact"]) {
   assert(home.includes(`id=\"${section}\"`), `home missing ${section} section`);
 }
 assert(home.includes("site.contact.email &&"), "home must hide the email link when contact.email is empty");

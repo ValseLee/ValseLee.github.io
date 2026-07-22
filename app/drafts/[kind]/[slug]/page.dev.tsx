@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
-import { MDXRemote } from "next-mdx-remote/rsc";
 
 import PostArticle from "@/components/PostArticle";
+import PortfolioProjectArticle from "@/components/PortfolioProjectArticle";
 import { isDraftPreviewEnabled, listDrafts, loadDraft } from "@/lib/draft-preview.mjs";
 
 interface DraftPageProps {
@@ -39,28 +39,5 @@ export default async function DraftPage({ params }: DraftPageProps) {
   if (result.status !== "ok") notFound();
   if (result.kind === "articles") return <PostArticle post={result.article} />;
 
-  return (
-    <article className="w-full max-w-[75vw] mx-auto py-12">
-      <header className="mb-12">
-        <p className="text-subtext text-sm mb-2">{result.project.period}</p>
-        <h1 className="font-serif text-4xl md:text-5xl font-semibold">{result.project.name}</h1>
-      </header>
-      <div className="prose">
-        <MDXRemote source={result.project.descriptionMarkdown} />
-      </div>
-      <div className="mt-12 space-y-8">
-        {result.project.media.map((media, index) => (
-          <figure key={`${media.src}-${index}`}>
-            {media.kind === "image" ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={media.src} alt={media.alt} />
-            ) : (
-              <video src={media.src} controls preload="metadata" />
-            )}
-            <figcaption className="text-subtext text-sm mt-2">{media.caption}</figcaption>
-          </figure>
-        ))}
-      </div>
-    </article>
-  );
+  return <PortfolioProjectArticle project={result.project} />;
 }
