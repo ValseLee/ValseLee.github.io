@@ -108,7 +108,13 @@ export async function publishPortfolioProject(rawProject, root = process.cwd(), 
     return { ok: true, committed: false, slug: project.slug, filePath: relativeFilePath, commitMessage, logs };
   }
 
-  const mediaSources = [project.coverImage?.src, ...project.media.map(({ src }) => src)].filter(Boolean);
+  const mediaSources = [
+    project.coverImage?.src,
+    ...project.media.flatMap((media) => [
+      media.src,
+      media.kind === "video" ? media.posterSrc : undefined,
+    ]),
+  ].filter(Boolean);
   const mediaPaths = [...new Set(mediaSources.map((src) => path.join("public", src.slice(1))))];
   const stagedPaths = [relativeFilePath, ...mediaPaths];
   const modulesPath = path.join(root, "node_modules");

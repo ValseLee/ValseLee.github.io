@@ -41,7 +41,7 @@ test("normalizePortfolioProject preserves ordered image and video media", () => 
     coverImage: { src: "/portfolio/cover.webp", alt: " Project cover " },
     media: [
       { kind: "image", src: "/portfolio/home.png", caption: " Home ", alt: " Home screen " },
-      { kind: "video", src: "/portfolio/demo.mp4", caption: " Demo ", alt: "discard me" },
+      { kind: "video", src: "/portfolio/demo.mp4", caption: " Demo ", size: "mini", posterSrc: "/portfolio/demo-poster.jpg", alt: "discard me" },
     ],
   });
 
@@ -52,8 +52,8 @@ test("normalizePortfolioProject preserves ordered image and video media", () => 
     descriptionMarkdown: "## Project description",
     coverImage: { src: "/portfolio/cover.webp", alt: "Project cover" },
     media: [
-      { kind: "image", src: "/portfolio/home.png", caption: "Home", alt: "Home screen" },
-      { kind: "video", src: "/portfolio/demo.mp4", caption: "Demo" },
+      { kind: "image", src: "/portfolio/home.png", caption: "Home", alt: "Home screen", size: "full" },
+      { kind: "video", src: "/portfolio/demo.mp4", caption: "Demo", size: "mini", posterSrc: "/portfolio/demo-poster.jpg" },
     ],
   });
 });
@@ -98,6 +98,32 @@ test("normalizePortfolioProject accepts an omitted cover and rejects invalid cov
     [{ src: "/portfolio/cover.txt", alt: "Cover" }, /coverImage\.src/i],
     [{ src: "/portfolio/../cover.png", alt: "Cover" }, /coverImage\.src/i],
   ]) assert.throws(() => normalizePortfolioProject({ ...valid, coverImage }), error);
+});
+
+test("normalizePortfolioProject validates media sizes and video posters", () => {
+  const valid = portfolioProject();
+  const sizes = ["mini", "small", "medium", "large", "full"];
+  const normalized = normalizePortfolioProject({
+    ...valid,
+    media: sizes.map((size) => ({
+      kind: "image", src: "/portfolio/home.png", caption: size, alt: size, size,
+    })),
+  });
+  assert.deepEqual(normalized.media.map(({ size }) => size), sizes);
+
+  for (const size of ["", "50%", "wide", 65, null]) {
+    assert.throws(() => normalizePortfolioProject({
+      ...valid,
+      media: [{ kind: "image", src: "/portfolio/home.png", caption: "Home", alt: "Home", size }],
+    }), /media\[0\]\.size/i);
+  }
+
+  for (const media of [
+    { kind: "image", src: "/portfolio/home.png", caption: "Home", alt: "Home", posterSrc: "/portfolio/poster.jpg" },
+    { kind: "video", src: "/portfolio/demo.mp4", caption: "Demo", posterSrc: "" },
+    { kind: "video", src: "/portfolio/demo.mp4", caption: "Demo", posterSrc: "/portfolio/poster.mp4" },
+    { kind: "video", src: "/portfolio/demo.mp4", caption: "Demo", posterSrc: "/portfolio/../poster.jpg" },
+  ]) assert.throws(() => normalizePortfolioProject({ ...valid, media: [media] }), /media\[0\]\.posterSrc/i);
 });
 
 test("savePortfolioMedia stores MP4 uploads and suffixes collisions", (t) => {
@@ -174,7 +200,13 @@ test("portfolio drafts round-trip and failed replacement preserves the previous 
     period: "2025",
     descriptionMarkdown: "Description",
     coverImage: { src: "/portfolio/cover.png", alt: "Cover" },
-    media: [{ kind: "video", src: "/portfolio/demo.mp4", caption: "Demo" }],
+    media: [{
+      kind: "video",
+      src: "/portfolio/demo.mp4",
+      caption: "Demo",
+      size: "large",
+      posterSrc: "/portfolio/demo-poster.jpg",
+    }],
   };
 
   const saved = savePortfolioDraft(project, root, new Date("2026-07-21T00:00:00.000Z"));
@@ -254,6 +286,7 @@ test("publishPortfolioProject updates by slug and stages only canonical JSON and
   fs.mkdirSync(path.join(root, "public", "portfolio"), { recursive: true });
   fs.writeFileSync(path.join(root, "public", "portfolio", "cover.png"), "cover");
   fs.writeFileSync(path.join(root, "public", "portfolio", "demo.mp4"), "mp4");
+  fs.writeFileSync(path.join(root, "public", "portfolio", "demo-poster.jpg"), "poster");
   const calls = [];
   const runner = async (command, args, cwd) => {
     calls.push({ command, args, cwd });
@@ -269,7 +302,13 @@ test("publishPortfolioProject updates by slug and stages only canonical JSON and
       slug: "loutine",
       name: "Loutine",
       coverImage: { src: "/portfolio/cover.png", alt: "Cover" },
-      media: [{ kind: "video", src: "/portfolio/demo.mp4", caption: "Demo" }],
+      media: [{
+        kind: "video",
+        src: "/portfolio/demo.mp4",
+        caption: "Demo",
+        size: "large",
+        posterSrc: "/portfolio/demo-poster.jpg",
+      }],
     }),
     root,
     new Date("2026-07-21T00:00:00.000Z"),
@@ -279,10 +318,10 @@ test("publishPortfolioProject updates by slug and stages only canonical JSON and
   assert.equal(result.committed, true);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, "content", "portfolio.json"), "utf8")).projects.map(({ slug }) => slug), ["first", "loutine"]);
   assert.deepEqual(calls.map(({ command, args, cwd }) => [command, args, cwd]), [
-    ["git", ["diff", "--cached", "--quiet", "--", "content/portfolio.json", "public/portfolio/cover.png", "public/portfolio/demo.mp4"], root],
+    ["git", ["diff", "--cached", "--quiet", "--", "content/portfolio.json", "public/portfolio/cover.png", "public/portfolio/demo.mp4", "public/portfolio/demo-poster.jpg"], root],
     ["npm", ["run", "build"], root],
-    ["git", ["add", "--", "content/portfolio.json", "public/portfolio/cover.png", "public/portfolio/demo.mp4"], root],
-    ["git", ["commit", "--only", "-m", "2026-07-21 update portfolio - Loutine", "--", "content/portfolio.json", "public/portfolio/cover.png", "public/portfolio/demo.mp4"], root],
+    ["git", ["add", "--", "content/portfolio.json", "public/portfolio/cover.png", "public/portfolio/demo.mp4", "public/portfolio/demo-poster.jpg"], root],
+    ["git", ["commit", "--only", "-m", "2026-07-21 update portfolio - Loutine", "--", "content/portfolio.json", "public/portfolio/cover.png", "public/portfolio/demo.mp4", "public/portfolio/demo-poster.jpg"], root],
     ["git", ["push"], root],
   ]);
 });

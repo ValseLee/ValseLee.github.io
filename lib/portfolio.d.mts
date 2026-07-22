@@ -1,7 +1,9 @@
 export interface PortfolioCoverImage { src: string; alt: string }
+export type PortfolioMediaSize = "mini" | "small" | "medium" | "large" | "full";
+export const PORTFOLIO_MEDIA_WIDTHS: Readonly<Record<PortfolioMediaSize, `${number}%`>>;
 export type PortfolioMedia =
-  | { kind: "image"; src: string; caption: string; alt: string }
-  | { kind: "video"; src: string; caption: string };
+  | { kind: "image"; src: string; caption: string; alt: string; size: PortfolioMediaSize }
+  | { kind: "video"; src: string; caption: string; size: PortfolioMediaSize; posterSrc?: string };
 export interface PortfolioProject {
   slug: string;
   name: string;
