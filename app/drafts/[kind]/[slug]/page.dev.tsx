@@ -16,8 +16,15 @@ export function generateStaticParams() {
 }
 
 export default async function DraftPage({ params }: DraftPageProps) {
-  const { kind, slug } = await params;
+  const { kind, slug: encodedSlug } = await params;
   if (kind !== "articles" && kind !== "portfolio") notFound();
+
+  let slug: string;
+  try {
+    slug = decodeURIComponent(encodedSlug);
+  } catch {
+    notFound();
+  }
 
   const result = loadDraft(kind, slug);
   if (result.status === "invalid") {

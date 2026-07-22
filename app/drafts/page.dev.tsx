@@ -26,7 +26,7 @@ export default function DraftsPage() {
               <ul className="space-y-3">
                 {items.map((draft) => (
                   <li key={draft.slug}>
-                    <Link href={`/drafts/${kind}/${draft.slug}`} className="transition-opacity hover:opacity-70">
+                    <Link href={`/drafts/${kind}/${encodeURIComponent(draft.slug)}`} className="transition-opacity hover:opacity-70">
                       {draft.label}{draft.valid ? "" : " · Invalid"} · <span className="text-subtext text-sm">{draft.slug}</span>
                     </Link>
                   </li>
