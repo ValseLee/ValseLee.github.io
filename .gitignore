@@ -42,4 +42,5 @@ next-env.d.ts
 
 # local article dashboard drafts
 /.article-drafts/
+/.portfolio-drafts/
 /.worktrees/
