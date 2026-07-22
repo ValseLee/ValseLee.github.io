@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Publish canonical portfolio projects in homepage section 2 with optional dashboard-managed covers and statically exported detail pages, and let authors append ordinary image/MP4 media through the accessible file input or dashboard-wide drag-and-drop.
+**Goal:** Publish canonical portfolio projects in homepage section 2 with optional dashboard-managed covers and statically exported detail pages, let authors append ordinary image/MP4 media through the accessible file input or dashboard-wide drag-and-drop, and add fixed media sizing plus optional native first-frame video posters.
 
-**Architecture:** Extend the existing portfolio normalizer with one optional image-only cover and add one small canonical reader for the homepage and detail route. Keep authoring in the existing localhost dashboard, reuse `/api/portfolio/media`, and route the ordinary-media input and body-level file-drop events through one sequential upload helper while leaving the cover flow separate. Render the public grid without client JavaScript, and extract the current draft detail markup only when the public route becomes its second consumer.
+**Architecture:** Keep the portfolio normalizer as the single contract boundary for covers, fixed media-size presets, and video-only poster paths. Keep authoring in the existing localhost dashboard, reuse `/api/portfolio/media` through one file-upload request helper, and use native `<video>` plus `<canvas>` only inside that dashboard. The shared server-rendered detail component consumes normalized sizes and poster paths without public client code.
 
 **Tech Stack:** Next.js 16 App Router/static export, React 19 Server Components, strict TypeScript, Node.js built-ins and `node:test`, `next-mdx-remote`, CSS Modules.
 
@@ -16,7 +16,10 @@
 - `coverImage` stays optional and separate from `media`; never infer it from the first media item.
 - Covers accept only existing portfolio image extensions and require non-empty alt text; missing covers render black.
 - Ordinary-media input and drop share one sequential helper; a failed file stops the batch after preserving prior successes, and drop never changes `coverImage` or dispatches a synthetic input event.
+- Media sizes are exactly `mini`, `small`, `medium`, `large`, and `full`, mapped to 20%, 45%, 65%, 85%, and 100%; omitted raw sizes normalize to `full`.
+- `posterSrc` is optional, image-only, and valid only on video media. Generate it with native browser APIs and the existing media endpoint; never remove a video or prior poster on failure.
 - Do not delete orphaned cover files, reorder detail media, redesign the detail body, or add crop/focal-point behavior.
+- Do not add arbitrary percentages, `ffmpeg`, a poster endpoint, a dependency, poster cleanup, or public client-side poster logic.
 - Preserve the approved homepage baseline except where Task 3 fills section 2; its recorded blobs are `app/page.tsx` = `47edb7b4c723216286f8a047410e1decd8819f36` and `app/globals.css` = `654ef0e53e7a97bbb0ff48b1d526f9a50a70f6bd`. Do not substitute a newer primary-checkout version or clean unrelated code.
 - Use semantic emoji commits and do not push.
 
@@ -1079,6 +1082,685 @@ git status --short
 
 Expected: the staged and committed paths are exactly the dashboard script and its existing test; final status is clean and nothing is pushed.
 
+---
+
+### Task 6: Add the canonical media-size/poster contract and public rendering
+
+**Files:**
+- Modify: `lib/portfolio.mjs:3-120`
+- Modify: `lib/portfolio.d.mts:1-22`
+- Modify: `scripts/article-dashboard.mjs:7-16,95-115`
+- Modify: `scripts/article-dashboard.test.mjs:35-102,168-285`
+- Modify: `components/PortfolioProjectArticle.tsx:1-27`
+
+**Interfaces:**
+- Consumes: the existing `normalizePortfolioSrc()` image/video allowlists, normalized draft/canonical reads, `publishPortfolioProject()` explicit path safeguards, and the shared `PortfolioProjectArticle` Server Component.
+- Produces: `PortfolioMediaSize = "mini" | "small" | "medium" | "large" | "full"`; `PORTFOLIO_MEDIA_WIDTHS = { mini:"20%", small:"45%", medium:"65%", large:"85%", full:"100%" }`; required normalized `media.size`; optional video-only `posterSrc`; deduplicated poster publish paths; centered public figures and native video `poster` attributes.
+
+- [ ] **Step 1: Add failing normalizer, draft, and publish-path tests**
+
+In `normalizePortfolioProject preserves ordered image and video media`, leave the image `size` omitted to prove the legacy default and give the video an explicit size/poster:
+
+```js
+media: [
+  { kind: "image", src: "/portfolio/home.png", caption: " Home ", alt: " Home screen " },
+  { kind: "video", src: "/portfolio/demo.mp4", caption: " Demo ", size: "mini", posterSrc: "/portfolio/demo-poster.jpg", alt: "discard me" },
+],
+```
+
+Expect the normalized media exactly:
+
+```js
+media: [
+  { kind: "image", src: "/portfolio/home.png", caption: "Home", alt: "Home screen", size: "full" },
+  { kind: "video", src: "/portfolio/demo.mp4", caption: "Demo", size: "mini", posterSrc: "/portfolio/demo-poster.jpg" },
+],
+```
+
+Add one focused contract test after the existing cover test:
+
+```js
+test("normalizePortfolioProject validates media sizes and video posters", () => {
+  const valid = portfolioProject();
+  const sizes = ["mini", "small", "medium", "large", "full"];
+  const normalized = normalizePortfolioProject({
+    ...valid,
+    media: sizes.map((size) => ({
+      kind: "image", src: "/portfolio/home.png", caption: size, alt: size, size,
+    })),
+  });
+  assert.deepEqual(normalized.media.map(({ size }) => size), sizes);
+
+  for (const size of ["", "50%", "wide", 65, null]) {
+    assert.throws(() => normalizePortfolioProject({
+      ...valid,
+      media: [{ kind: "image", src: "/portfolio/home.png", caption: "Home", alt: "Home", size }],
+    }), /media\[0\]\.size/i);
+  }
+
+  for (const media of [
+    { kind: "image", src: "/portfolio/home.png", caption: "Home", alt: "Home", posterSrc: "/portfolio/poster.jpg" },
+    { kind: "video", src: "/portfolio/demo.mp4", caption: "Demo", posterSrc: "" },
+    { kind: "video", src: "/portfolio/demo.mp4", caption: "Demo", posterSrc: "/portfolio/poster.mp4" },
+    { kind: "video", src: "/portfolio/demo.mp4", caption: "Demo", posterSrc: "/portfolio/../poster.jpg" },
+  ]) assert.throws(() => normalizePortfolioProject({ ...valid, media: [media] }), /media\[0\]\.posterSrc/i);
+});
+```
+
+Change the draft round-trip fixture's video to:
+
+```js
+media: [{
+  kind: "video",
+  src: "/portfolio/demo.mp4",
+  caption: "Demo",
+  size: "large",
+  posterSrc: "/portfolio/demo-poster.jpg",
+}],
+```
+
+In `publishPortfolioProject updates by slug...`, create `demo-poster.jpg`, use that same video shape, and update every preflight/add/commit path list to this exact order:
+
+```js
+[
+  "content/portfolio.json",
+  "public/portfolio/cover.png",
+  "public/portfolio/demo.mp4",
+  "public/portfolio/demo-poster.jpg",
+]
+```
+
+- [ ] **Step 2: Run the focused model tests and confirm RED**
+
+Run:
+
+```bash
+node --test --test-name-pattern='normalizePortfolioProject|portfolio drafts|publishPortfolioProject updates' scripts/article-dashboard.test.mjs
+```
+
+Expected: FAIL because normalized media have no `size`/`posterSrc`, invalid values are accepted or discarded, draft equality loses the new fields, and publish does not include the poster path.
+
+- [ ] **Step 3: Run the public legacy-size probe and confirm RED**
+
+Run the unchanged production build, then inspect the existing canonical Loutine detail output (its raw media omit `size`):
+
+```bash
+npm run build
+node -e 'const fs=require("node:fs"); const file=["out/portfolio/loutine.html","out/portfolio/loutine/index.html"].find(fs.existsSync); if(!file) throw new Error("missing static portfolio route"); const html=fs.readFileSync(file,"utf8"); if(!/<figure[^>]*style="[^"]*width:100%/.test(html)) throw new Error("legacy media is not rendered at centered full width")'
+```
+
+Expected: build PASS, then probe FAIL with `legacy media is not rendered at centered full width` because the shared detail renderer has no normalized width style yet.
+
+- [ ] **Step 4: Implement the fixed normalized contract**
+
+Add beside the extension sets in `lib/portfolio.mjs`:
+
+```js
+export const PORTFOLIO_MEDIA_WIDTHS = Object.freeze({
+  mini: "20%",
+  small: "45%",
+  medium: "65%",
+  large: "85%",
+  full: "100%",
+});
+const PORTFOLIO_MEDIA_SIZES = new Set(Object.keys(PORTFOLIO_MEDIA_WIDTHS));
+
+function normalizePortfolioMediaSize(value, index) {
+  if (value === undefined) return "full";
+  if (typeof value !== "string" || !PORTFOLIO_MEDIA_SIZES.has(value)) {
+    throw new Error(`media[${index}].size is invalid`);
+  }
+  return value;
+}
+
+function normalizePortfolioPosterSrc(value, index) {
+  const posterSrc = normalizePortfolioSrc(value, `media[${index}].posterSrc`);
+  const extension = path.extname(decodeURIComponent(posterSrc)).toLowerCase();
+  if (!PORTFOLIO_IMAGE_EXTENSIONS.has(extension)) {
+    throw new Error(`media[${index}].posterSrc must be an image`);
+  }
+  return posterSrc;
+}
+```
+
+Inside the existing media map, compute `size` after `src`/`caption`, then replace only the two successful return branches:
+
+```js
+const size = normalizePortfolioMediaSize(item.size, index);
+if (item.kind === "image" && PORTFOLIO_IMAGE_EXTENSIONS.has(extension)) {
+  if (Object.hasOwn(item, "posterSrc")) throw new Error(`media[${index}].posterSrc is only valid for video`);
+  return { kind: "image", src, caption, alt: requiredPortfolioText(item.alt, `media[${index}].alt`), size };
+}
+if (item.kind === "video" && PORTFOLIO_VIDEO_EXTENSIONS.has(extension)) {
+  const posterSrc = Object.hasOwn(item, "posterSrc")
+    ? normalizePortfolioPosterSrc(item.posterSrc, index)
+    : undefined;
+  return { kind: "video", src, caption, size, ...(posterSrc ? { posterSrc } : {}) };
+}
+```
+
+Update `lib/portfolio.d.mts` without introducing a raw-content type:
+
+```ts
+export type PortfolioMediaSize = "mini" | "small" | "medium" | "large" | "full";
+export const PORTFOLIO_MEDIA_WIDTHS: Readonly<Record<PortfolioMediaSize, `${number}%`>>;
+export type PortfolioMedia =
+  | { kind: "image"; src: string; caption: string; alt: string; size: PortfolioMediaSize }
+  | { kind: "video"; src: string; caption: string; size: PortfolioMediaSize; posterSrc?: string };
+```
+
+- [ ] **Step 5: Include posters in the existing explicit publish path set**
+
+Replace only `mediaSources` in `publishPortfolioProject()`:
+
+```js
+const mediaSources = [
+  project.coverImage?.src,
+  ...project.media.flatMap((media) => [
+    media.src,
+    media.kind === "video" ? media.posterSrc : undefined,
+  ]),
+].filter(Boolean);
+```
+
+Leave the following `Set` deduplication, staged-overlap preflight, build rollback, `git commit --only`, and push behavior unchanged.
+
+- [ ] **Step 6: Apply normalized width and poster values in the shared Server Component**
+
+Import the shared mapping as a value and keep the type-only project import:
+
+```tsx
+import { PORTFOLIO_MEDIA_WIDTHS } from "@/lib/portfolio.mjs";
+import type { PortfolioProject } from "@/lib/portfolio.mjs";
+```
+
+Change only the existing media figure:
+
+```tsx
+<figure
+  key={`${media.src}-${index}`}
+  style={{ width: PORTFOLIO_MEDIA_WIDTHS[media.size], marginInline: "auto" }}
+>
+  {media.kind === "image" ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img className="w-full" src={media.src} alt={media.alt} />
+  ) : (
+    <video className="w-full" src={media.src} poster={media.posterSrc} controls preload="metadata" />
+  )}
+  <figcaption className="text-subtext text-sm mt-2">{media.caption}</figcaption>
+</figure>
+```
+
+Do not add a Client Component, effect, poster extraction, or a public percentage parser.
+
+- [ ] **Step 7: Run GREEN checks and commit Task 6**
+
+```bash
+node --test --test-name-pattern='normalizePortfolioProject|portfolio drafts|publishPortfolioProject updates' scripts/article-dashboard.test.mjs
+npm test
+npm run verify:content
+npm run lint
+npm run build
+node -e 'const fs=require("node:fs"); const file=["out/portfolio/loutine.html","out/portfolio/loutine/index.html"].find(fs.existsSync); if(!file) throw new Error("missing static portfolio route"); const html=fs.readFileSync(file,"utf8"); if(!/<figure[^>]*style="[^"]*width:100%/.test(html)) throw new Error("legacy media is not rendered at centered full width")'
+git diff --check
+git add lib/portfolio.mjs lib/portfolio.d.mts scripts/article-dashboard.mjs scripts/article-dashboard.test.mjs components/PortfolioProjectArticle.tsx
+git diff --cached --check
+git diff --cached --name-only
+git commit -m "✨ feat: add portfolio media display contract"
+```
+
+Expected: all PASS; `verify:content` accepts the legacy size omissions as normalized `full`; the static detail HTML includes `width:100%`; the commit contains exactly the five listed files.
+
+---
+
+### Task 7: Add dashboard Size controls and native first-frame video posters
+
+**Files:**
+- Modify: `scripts/article-dashboard.mjs:7-16,995-1450`
+- Modify: `scripts/article-dashboard.test.mjs:395-705`
+
+**Interfaces:**
+- Consumes: `PORTFOLIO_MEDIA_WIDTHS`, the existing `/api/portfolio/media` request/response boundary, `uploadMediaFiles(files)`, `mediaElement(item)`, `renderMediaRows()`, `renderPreview()`, and the existing `node:vm` fake DOM/fetch test.
+- Produces: one labelled native Size select per media row; centered 20/45/65/85/100 row/preview widths; `generateVideoPoster(item): Promise<void>` shared by automatic new-video and manual existing-video actions; a first poster-warning retained across the rest of a successful upload batch.
+
+- [ ] **Step 1: Extend the existing node:vm fake browser with failing size and media primitives**
+
+Keep `preview.children[2]` for every period assertion and keep media paths at `row.children[1]`. Extend `createElement(tagName = "div")` rather than adding a second harness:
+
+```js
+let posterMode = "success";
+const drawnFrames = [];
+const createElement = (tagName = "div") => {
+  const listeners = new Map();
+  const classes = new Set();
+  const element = {
+    tagName: tagName.toUpperCase(),
+    value: "", checked: false, disabled: false, required: false, min: "", files: [],
+    children: [], style: {},
+    classList: {
+      add(...names) { names.forEach((name) => classes.add(name)); },
+      remove(...names) { names.forEach((name) => classes.delete(name)); },
+      contains(name) { return classes.has(name); },
+    },
+    addEventListener(type, listener) { listeners.set(type, listener); },
+    removeEventListener(type, listener) { if (listeners.get(type) === listener) listeners.delete(type); },
+    dispatch(type, event = {}) { return listeners.get(type)?.({ preventDefault() {}, ...event }); },
+    listenerCount() { return listeners.size; },
+    append(...children) { this.children.push(...children); },
+    replaceChildren(...children) { this.children = children; },
+  };
+  if (tagName === "video") {
+    element.videoWidth = 1280;
+    element.videoHeight = 720;
+    element.load = () => queueMicrotask(() => element.dispatch(
+      posterMode === "decode" || element.src.includes("/warning-") ? "error" : "loadeddata",
+    ));
+  }
+  if (tagName === "canvas") {
+    element.getContext = () => {
+      if (posterMode === "canvas") throw new Error("canvas failed");
+      return { drawImage(video, x, y, width, height) { drawnFrames.push({ video, x, y, width, height }); } };
+    };
+    element.toBlob = (callback, type) => callback(posterMode === "null-blob" ? null : { type });
+  }
+  return element;
+};
+
+class FakeFile {
+  constructor(parts, name, options) { this.parts = parts; this.name = name; this.type = options.type; }
+}
+```
+
+Pass `File: FakeFile` into `vm.runInNewContext`. In the media fetch branch, make poster behavior deterministic without changing ordinary upload behavior:
+
+```js
+else if (fileName.endsWith("-poster.jpg")) {
+  if (posterMode === "upload") {
+    responseOk = false;
+    result = { ok: false, error: "poster upload failed" };
+  } else if (posterMode === "malformed") {
+    result = { ok: true, kind: "video", src: "/portfolio/not-an-image.mp4" };
+  } else {
+    result = { ok: true, kind: "image", src: `/portfolio/${fileName}` };
+  }
+}
+```
+
+Give the initial existing video a non-default size and prior poster:
+
+```js
+media: [{
+  kind: "video",
+  src: "/portfolio/demo.mp4",
+  caption: "Demo",
+  size: "small",
+  posterSrc: "/portfolio/old-poster.jpg",
+}],
+```
+
+- [ ] **Step 2: Add failing Size-control and existing-video poster assertions**
+
+After the initial field assertions, add stable row helpers:
+
+```js
+const mediaRows = elements.get("#media-rows");
+const mediaPaths = () => mediaRows.children.map((row) => row.children[1].textContent);
+const sizeControl = (row) => row.children.find(({ className }) => className === "media-size-field").children[0];
+const thumbnailButton = (row) => row.children.at(-1).children.find(({ textContent }) => textContent === "Generate Thumbnail");
+
+assert.equal(mediaRows.children[0].style.width, "45%");
+assert.equal(mediaRows.children[0].style.marginInline, "auto");
+assert.equal(mediaRows.children[0].children[0].poster, "/portfolio/old-poster.jpg");
+assert.deepEqual(sizeControl(mediaRows.children[0]).children.map(({ value }) => value), ["mini", "small", "medium", "large", "full"]);
+
+sizeControl(mediaRows.children[0]).value = "medium";
+sizeControl(mediaRows.children[0]).dispatch("change");
+assert.equal(mediaRows.children[0].style.width, "65%");
+assert.equal(preview.children[4].style.width, "65%");
+assert.equal(preview.children[4].style.marginInline, "auto");
+```
+
+Delete the later duplicate `const mediaRows` and `const mediaPaths` declarations from the existing drag-and-drop block and reuse these helpers there; `mediaPaths()` must continue reading `row.children[1]`.
+
+Click the existing video's action and prove intrinsic canvas sizing, JPEG upload, assignment, and listener cleanup:
+
+```js
+await thumbnailButton(mediaRows.children[0]).dispatch("click");
+const drawnFrame = drawnFrames.at(-1);
+assert.deepEqual(
+  { x: drawnFrame.x, y: drawnFrame.y, width: drawnFrame.width, height: drawnFrame.height },
+  { x: 0, y: 0, width: 1280, height: 720 },
+);
+assert.equal(drawnFrame.video.listenerCount(), 0);
+const posterRequest = requests.filter(({ url, options }) =>
+  url === "/api/portfolio/media" && decodeURIComponent(options.headers["x-file-name"]) === "demo-poster.jpg").at(-1);
+assert.equal(posterRequest.options.headers["content-type"], "image/jpeg");
+assert.equal(mediaRows.children[0].children[0].poster, "/portfolio/demo-poster.jpg");
+```
+
+Then exercise each manual failure through the same button and prove the successful poster is never replaced:
+
+```js
+for (const mode of ["decode", "canvas", "null-blob", "upload", "malformed"]) {
+  posterMode = mode;
+  await thumbnailButton(mediaRows.children[0]).dispatch("click");
+  assert.equal(mediaRows.children[0].children[0].poster, "/portfolio/demo-poster.jpg");
+  assert.match(elements.get("#status").textContent, /thumbnail|poster|canvas/i);
+}
+posterMode = "success";
+```
+
+- [ ] **Step 3: Add failing automatic-poster, first-warning, input-regression, and cover-isolation assertions**
+
+Retain the existing Task 5 drag/drop assertions, but filter poster requests out of its ordinary upload-order checks because successful videos now add an interleaved poster request:
+
+```js
+const uploadedNames = () => requests
+  .filter(({ url }) => url === "/api/portfolio/media")
+  .map(({ options }) => decodeURIComponent(options.headers["x-file-name"]));
+const ordinaryUploadedNames = () => uploadedNames().filter((name) => !name.endsWith("-poster.jpg"));
+```
+
+Use `ordinaryUploadedNames()` for the existing `drop-one/drop-two/kept/bad`, skipped-file, and file-input order assertions. Keep `mediaPaths()` unchanged so it still proves that generated posters do not become ordinary rows. After the existing file-input regression, add two automatic failures around later successful files so the retained warning is provably the first one:
+
+```js
+const warningBatch = {
+  types: ["Files"],
+  files: [
+    { name: "warning-first.mp4", type: "video/mp4" },
+    { name: "after-warning.png", type: "image/png" },
+    { name: "warning-second.mp4", type: "video/mp4" },
+    { name: "later.mp4", type: "video/mp4" },
+  ],
+  dropEffect: "none",
+};
+body.dispatch("dragenter", { dataTransfer: warningBatch });
+await body.dispatch("drop", { dataTransfer: warningBatch, preventDefault() {} });
+assert.deepEqual(mediaPaths().slice(-4), [
+  "/portfolio/warning-first.mp4",
+  "/portfolio/after-warning.png",
+  "/portfolio/warning-second.mp4",
+  "/portfolio/later.mp4",
+]);
+assert.match(elements.get("#status").textContent, /warning.*warning-first\.mp4/i);
+assert.doesNotMatch(elements.get("#status").textContent, /warning-second\.mp4/i);
+assert.equal(uploadedNames().includes("warning-first-poster.jpg"), false);
+assert.equal(uploadedNames().includes("warning-second-poster.jpg"), false);
+assert.equal(requests.some(({ url, options }) =>
+  url === "/api/portfolio/media" && decodeURIComponent(options.headers["x-file-name"]) === "later-poster.jpg"), true);
+assert.equal(coverPreview.children[0].src, "/portfolio/new-cover.png");
+```
+
+Because `uploadedNames()` reads `requests` on every call, later automatic poster requests cannot make the Task 5 order assertions stale. In the final saved-draft assertion, require every media item to have `size`, require the changed existing video to keep `size: "medium"` and its poster, require new media to default to `full`, and confirm `coverImage` is unchanged. Do not change any `preview.children[2]` period assertion.
+
+- [ ] **Step 4: Run the focused test and confirm RED**
+
+```bash
+node --test --test-name-pattern='portfolio controls retain browser behavior' scripts/article-dashboard.test.mjs
+```
+
+Expected: FAIL first because media rows have no `.media-size-field`, no width style, and no `Generate Thumbnail` action. The fake video/canvas assertions must not be weakened to make the pre-implementation script pass.
+
+- [ ] **Step 5: Reuse one upload request boundary and render fixed sizes/posters**
+
+Import `PORTFOLIO_MEDIA_WIDTHS` into `scripts/article-dashboard.mjs`, then serialize it once into the existing inline script:
+
+```js
+const mediaWidths = ${JSON.stringify(PORTFOLIO_MEDIA_WIDTHS)};
+const mediaSizes = Object.keys(mediaWidths);
+```
+
+Extract only the repeated existing POST into a local helper and call it from cover upload, ordinary upload, and poster upload:
+
+```js
+async function uploadPortfolioFile(file, failureMessage = "Upload failed") {
+  const response = await fetch("/api/portfolio/media", {
+    method:"POST",
+    headers:{ "content-type":file.type, "x-file-name":encodeURIComponent(file.name) },
+    body:file,
+  });
+  const stored = await response.json();
+  if (!response.ok) throw new Error(stored.error || failureMessage);
+  return stored;
+}
+```
+
+Keep cover's existing image-response check after this helper returns. In `mediaElement()` set only validated video posters:
+
+```js
+else {
+  element.controls = true;
+  element.preload = "metadata";
+  if (item.posterSrc) element.poster = item.posterSrc;
+}
+```
+
+Add the fixed-width application and use it on each row and preview figure:
+
+```js
+function applyMediaSize(element, size) {
+  element.style.width = mediaWidths[size];
+  element.style.marginInline = "auto";
+}
+```
+
+Every newly appended ordinary item must include `size:"full"` while cover state remains separate.
+
+- [ ] **Step 6: Add native Size selects and one shared poster-generation lifecycle**
+
+In `renderMediaRows()`, call `applyMediaSize(row, item.size)`. After caption/alt controls and before actions, append one wrapping native label:
+
+```js
+const sizeLabel = document.createElement("label");
+sizeLabel.className = "media-size-field";
+sizeLabel.textContent = "Size for " + item.src;
+const sizeSelect = document.createElement("select");
+for (const size of mediaSizes) {
+  const option = document.createElement("option");
+  option.value = size;
+  option.textContent = size;
+  sizeSelect.append(option);
+}
+sizeSelect.value = item.size;
+sizeSelect.addEventListener("change", () => {
+  item.size = sizeSelect.value;
+  applyMediaSize(row, item.size);
+  markDirty();
+});
+sizeLabel.append(sizeSelect);
+row.append(sizeLabel);
+```
+
+Add these local functions beside `mediaElement()`; no element is attached to the document:
+
+```js
+function loadVideoFrame(src) {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement("video");
+    const cleanup = () => {
+      video.removeEventListener("loadeddata", loaded);
+      video.removeEventListener("error", failed);
+      video.removeEventListener("abort", failed);
+    };
+    const loaded = () => { cleanup(); resolve(video); };
+    const failed = () => { cleanup(); reject(new Error("Thumbnail video decode failed for " + src)); };
+    video.addEventListener("loadeddata", loaded);
+    video.addEventListener("error", failed);
+    video.addEventListener("abort", failed);
+    video.preload = "auto";
+    video.currentTime = 0;
+    video.src = src;
+    video.load();
+  });
+}
+
+function canvasJpeg(canvas) {
+  return new Promise((resolve, reject) => canvas.toBlob(
+    (blob) => blob ? resolve(blob) : reject(new Error("Thumbnail canvas returned no image")),
+    "image/jpeg",
+  ));
+}
+
+function posterFileName(src) {
+  const fileName = decodeURIComponent(src.split("/").at(-1));
+  return fileName.replace(/\.[^.]+$/, "") + "-poster.jpg";
+}
+
+async function generateVideoPoster(item) {
+  const video = await loadVideoFrame(item.src);
+  if (!(video.videoWidth > 0 && video.videoHeight > 0)) throw new Error("Thumbnail video has no decoded frame");
+  const canvas = document.createElement("canvas");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Thumbnail canvas is unavailable");
+  context.drawImage(video, 0, 0, canvas.width, canvas.height);
+  const blob = await canvasJpeg(canvas);
+  const file = new File([blob], posterFileName(item.src), { type:"image/jpeg" });
+  const stored = await uploadPortfolioFile(file, "Thumbnail upload failed");
+  if (stored.kind !== "image" || typeof stored.src !== "string") throw new Error("Thumbnail upload must return an image");
+  item.posterSrc = stored.src;
+  state.dirty = true;
+  renderMediaRows();
+  schedulePreview();
+}
+```
+
+For each video row, append one button to the existing actions before Move Up:
+
+```js
+if (item.kind === "video") {
+  const generateButton = mediaButton("Generate Thumbnail", () => withAction(generateButton, async () => {
+    await generateVideoPoster(item);
+    setStatus("Thumbnail generated", "ok");
+  }), false);
+  actions.append(generateButton);
+}
+```
+
+The old poster is assigned only after the complete successful path; all thrown decode/canvas/blob/upload/response errors therefore preserve it. In `renderPreview()`, call `applyMediaSize(figure, item.size)` before appending the figure.
+
+- [ ] **Step 7: Preserve the first automatic poster warning while continuing the batch**
+
+Keep ordinary upload failures throwing so Task 5's stop-on-first-failed-file behavior remains. Change only the successful append path and final status in `uploadMediaFiles()`:
+
+```js
+async function uploadMediaFiles(files) {
+  let firstPosterWarning = "";
+  for (const file of files) {
+    const stored = await uploadPortfolioFile(file);
+    const item = stored.kind === "image"
+      ? { kind:"image", src:stored.src, caption:"", alt:"", size:"full" }
+      : { kind:"video", src:stored.src, caption:"", size:"full" };
+    state.project.media.push(item);
+    state.dirty = true;
+    renderMediaRows();
+    schedulePreview();
+    if (item.kind === "video") {
+      try { await generateVideoPoster(item); }
+      catch (error) { if (!firstPosterWarning) firstPosterWarning = error.message; }
+    }
+  }
+  setStatus(
+    firstPosterWarning ? "Media uploaded; thumbnail warning: " + firstPosterWarning : "Media uploaded",
+    firstPosterWarning ? "error" : "ok",
+  );
+}
+```
+
+Do not roll back a stored video, stop later files for a poster failure, add the poster as an ordinary media row, or touch `coverImage`.
+
+- [ ] **Step 8: Run focused and repository GREEN checks**
+
+```bash
+node --test --test-name-pattern='portfolio controls retain browser behavior' scripts/article-dashboard.test.mjs
+npm run test:article-dashboard
+npm test
+npm run verify:content
+npm run lint
+npm run build
+git diff --check
+```
+
+Expected: all PASS; the focused fake-browser test proves all five preset values/widths, manual success and failure preservation, automatic generation, first-warning retention with later-file continuation, ordinary upload ordering, file-input regression, unchanged cover state, JPEG filename/type, intrinsic canvas dimensions, and listener cleanup.
+
+- [ ] **Step 9: Capture fresh browser and fallback proof**
+
+Start a fresh portfolio dashboard against a disposable root on port 4322, copying only canonical content and one existing image/video needed for real media decoding:
+
+```bash
+portfolio_media_proof_root=$(mktemp -d)
+mkdir -p "$portfolio_media_proof_root/content" "$portfolio_media_proof_root/public/portfolio"
+cp content/portfolio.json "$portfolio_media_proof_root/content/portfolio.json"
+proof_image=$(node -e 'const p=require("./content/portfolio.json").projects[0].media.find(({kind})=>kind==="image"); process.stdout.write(p.src)')
+proof_video=$(node -e 'const p=require("./content/portfolio.json").projects[0].media.find(({kind})=>kind==="video"); process.stdout.write(p.src)')
+cp "public$proof_image" "$portfolio_media_proof_root/public/portfolio/"
+cp "public$proof_video" "$portfolio_media_proof_root/public/portfolio/"
+(
+  cd "$portfolio_media_proof_root"
+  PORTFOLIO_DASHBOARD_PORT=4322 node /Users/celan/.herdr/worktrees/ValseLee.github.io/feature-portfolio-section/scripts/article-dashboard.mjs portfolio
+)
+```
+
+Open `http://127.0.0.1:4322` in a fresh browser. Change the first row Size through all five values and record row/preview computed widths of exactly 20%, 45%, 65%, 85%, and 100% of their media columns with centered left/right margins. Click the first existing video's `Generate Thumbnail`; when native decoding succeeds, record that:
+
+- the row and preview video `poster` attributes point to the new `/portfolio/*-poster.jpg`;
+- the media row count and order are unchanged;
+- the cover path is unchanged;
+- the status reports thumbnail success.
+
+When `DataTransfer`, `File`, and `DragEvent` are available, fetch `proof_video` from the same dashboard origin, wrap its blob in a new MP4 `File`, and dispatch a body `drop`. Record that a new video row appears before its poster request completes, its final size is `full`, and its poster appears without a separate image row. If the browser cannot construct the drop or decode the MP4/canvas, record the exact unavailable API/decoder error and rerun the deterministic fallback:
+
+```bash
+node --test --test-name-pattern='portfolio controls retain browser behavior' scripts/article-dashboard.test.mjs
+```
+
+For the shared public renderer, first refuse to overwrite an existing proof draft, then start a fresh current-worktree dashboard on port 4324:
+
+```bash
+test ! -e .portfolio-drafts/portfolio-media-proof.json
+PORTFOLIO_DASHBOARD_PORT=4324 npm run portfolio
+```
+
+In another terminal, use that dashboard's existing draft API to save a development-only proof project containing all five sizes and a video poster; this writes only `.portfolio-drafts/portfolio-media-proof.json`:
+
+```bash
+node -e 'const fs=require("node:fs"); const source=JSON.parse(fs.readFileSync("content/portfolio.json","utf8")).projects[0]; const image=source.media.find(({kind})=>kind==="image"); const video=source.media.find(({kind})=>kind==="video"); const sizes=["mini","small","medium","large","full"]; const media=sizes.map((size,index)=>index===0?{...image,size}:{...video,size,posterSrc:image.src}); const project={...source,slug:"portfolio-media-proof",name:"Portfolio media proof",media}; fetch("http://127.0.0.1:4324/api/portfolio/draft",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(project)}).then(async response=>{const result=await response.json(); if(!response.ok) throw new Error(result.error); console.log(result.project.slug)})'
+npm run dev -- --hostname 127.0.0.1 --port 4323
+```
+
+Open the fresh Next server and inspect `/drafts/portfolio/portfolio-media-proof` plus `/portfolio/loutine`:
+
+- the draft route's five figures compute to 20%, 45%, 65%, 85%, and 100%, centered;
+- its video has the exact poster attribute;
+- the canonical public route's legacy omitted sizes compute to centered 100%;
+- neither page markup nor loaded script text contains the dashboard-only `toBlob("image/jpeg")` poster extractor.
+
+If the development-only draft route cannot be opened in the browser surface, retain the successful static-output probe from Task 6 and the exact `node:vm` renderer inputs as the fallback, and report that limitation explicitly.
+
+Stop only ports 4322, 4323, and 4324. Remove only `.portfolio-drafts/portfolio-media-proof.json` and the validated disposable root:
+
+```bash
+rm -f -- .portfolio-drafts/portfolio-media-proof.json
+case "$portfolio_media_proof_root" in
+  /tmp/*|/private/tmp/*|/var/folders/*) rm -rf -- "$portfolio_media_proof_root" ;;
+  *) echo "refusing unexpected proof root: $portfolio_media_proof_root"; exit 1 ;;
+esac
+```
+
+- [ ] **Step 10: Commit only dashboard production/test changes and verify final state**
+
+```bash
+git add scripts/article-dashboard.mjs scripts/article-dashboard.test.mjs
+git diff --cached --check
+git diff --cached --name-only
+git commit -m "✨ feat: add portfolio media sizing and posters"
+git status --short
+git log --oneline -4
+```
+
+Expected: the commit contains exactly the dashboard script and its existing test; status is clean; Task 6 and Task 7 commits are present; nothing is pushed.
+
 ## Execution Handoff
 
-Tasks 1-4 are completed historical work and remain unchanged above. Execution mode is **Inline Execution** in this same Herdr worktree; after critical review, invoke `superpowers:executing-plans` and execute only Task 5, stopping at every RED, GREEN, browser-proof, and commit gate.
+Tasks 1-5 are completed historical work and remain unchanged above. Execution mode is **Inline Execution** in this same Herdr worktree; after critical review, invoke `superpowers:executing-plans` and execute only Tasks 6-7 in order, stopping at every RED, GREEN, browser-proof, and commit gate.
