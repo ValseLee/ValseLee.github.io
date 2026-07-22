@@ -12,7 +12,7 @@ const [page, styles, site] = await Promise.all([
 ]);
 
 test("display title uses a reduced-motion-safe vertical cut reveal", () => {
-  assert.match(site, /title:\s*\["안녕하세요,", "iOS Product Engineer", "이승준 입니다\."\]/);
+  assert.match(site, /title:\s*\["👋 안녕하세요,", "iOS Product Engineer", "이승준 입니다\."\]/);
   assert.match(page, /site\.identity\.title\.map/);
   assert.match(page, /line\.split\(" "\)/);
   assert.match(page, /Array\.from\(word\)/);

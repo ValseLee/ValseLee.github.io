@@ -3,7 +3,7 @@ const site = {
     name: "Celan",
     role: "iOS Product Engineer",
     titleText: "iOS Product Engineer | Celan",
-    title: ["안녕하세요,", "iOS Product Engineer", "이승준 입니다."],
+    title: ["👋 안녕하세요,", "iOS Product Engineer", "이승준 입니다."],
     intro: "2년 이상 Swift/UIKit/SwiftUI 기반 iOS 애플리케이션을 개발·출시·운영하고, 제품 기획과 팀 협업을 통해 서비스 완성도와 사용자 지표를 개선해 왔습니다.",
   },
   about: {
