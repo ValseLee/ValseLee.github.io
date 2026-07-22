@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { normalizePortfolioContent } from "./article-dashboard.mjs";
+import { normalizePortfolioContent } from "../lib/portfolio.mjs";
 
 const root = process.cwd();
 const expectedTranslationSlugs = [
