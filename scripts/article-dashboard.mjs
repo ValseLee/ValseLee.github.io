@@ -1223,7 +1223,16 @@ function renderPortfolioDashboard(root) {
           video.removeEventListener("abort", failed);
         };
         const loaded = () => { cleanup(); resolve(video); };
-        const failed = () => { cleanup(); reject(new Error("Thumbnail video decode failed for " + src)); };
+        const failed = (event) => {
+          cleanup();
+          const error = video.error;
+          const reason = event.type === "abort"
+            ? "load aborted"
+            : ({ 1:"load aborted", 2:"network error", 3:"decode error", 4:"source unsupported" })[error?.code] || "unknown media error";
+          const code = event.type === "error" && error?.code ? " (code " + error.code + ")" : "";
+          const detail = error?.message ? ": " + error.message : "";
+          reject(new Error("Thumbnail video " + reason + code + " for " + src + detail));
+        };
         video.addEventListener("loadeddata", loaded);
         video.addEventListener("error", failed);
         video.addEventListener("abort", failed);
@@ -1715,8 +1724,37 @@ export function createServer(root, { mode = "article" } = {}) {
           const fileName = decodeURIComponent(url.pathname.slice("/portfolio/".length));
           const src = normalizePortfolioSrc(`/portfolio/${fileName}`, "media.src");
           const extension = path.extname(src).toLowerCase();
-          response.writeHead(200, { "content-type": PORTFOLIO_MEDIA_TYPES.get(extension)[1] });
-          response.end(fs.readFileSync(path.join(root, "public", "portfolio", fileName)));
+          const content = fs.readFileSync(path.join(root, "public", "portfolio", fileName));
+          const range = /^bytes=(\d*)-(\d*)$/.exec(String(request.headers.range ?? ""));
+          let start = 0;
+          let end = content.length - 1;
+          let statusCode = 200;
+          if (range && (range[1] || range[2])) {
+            const requestedStart = range[1] ? Number(range[1]) : null;
+            const requestedEnd = range[2] ? Number(range[2]) : null;
+            if ((requestedStart !== null && !Number.isSafeInteger(requestedStart))
+              || (requestedEnd !== null && !Number.isSafeInteger(requestedEnd))) {
+              response.writeHead(416, { "accept-ranges":"bytes", "content-range":`bytes */${content.length}`, "content-length":"0" });
+              response.end();
+              return;
+            }
+            start = requestedStart ?? Math.max(0, content.length - requestedEnd);
+            end = requestedStart === null ? end : Math.min(requestedEnd ?? end, end);
+            if (start >= content.length || end < start) {
+              response.writeHead(416, { "accept-ranges":"bytes", "content-range":`bytes */${content.length}`, "content-length":"0" });
+              response.end();
+              return;
+            }
+            statusCode = 206;
+          }
+          const headers = {
+            "accept-ranges":"bytes",
+            "content-length":String(end - start + 1),
+            "content-type":PORTFOLIO_MEDIA_TYPES.get(extension)[1],
+          };
+          if (statusCode === 206) headers["content-range"] = `bytes ${start}-${end}/${content.length}`;
+          response.writeHead(statusCode, headers);
+          response.end(content.subarray(start, end + 1));
           return;
         } catch {
           response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });

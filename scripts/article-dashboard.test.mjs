@@ -514,7 +514,7 @@ test("portfolio controls retain browser behavior", async (t) => {
       },
       addEventListener(type, listener) { listeners.set(type, listener); },
       removeEventListener(type, listener) { if (listeners.get(type) === listener) listeners.delete(type); },
-      dispatch(type, event = {}) { return listeners.get(type)?.({ preventDefault() {}, ...event }); },
+      dispatch(type, event = {}) { return listeners.get(type)?.({ type, preventDefault() {}, ...event }); },
       listenerCount() { return listeners.size; },
       append(...children) { this.children.push(...children); },
       replaceChildren(...children) { this.children = children; },
@@ -522,9 +522,17 @@ test("portfolio controls retain browser behavior", async (t) => {
     if (tagName === "video") {
       element.videoWidth = 1280;
       element.videoHeight = 720;
-      element.load = () => queueMicrotask(() => element.dispatch(
-        posterMode === "decode" || element.src.includes("/warning-") ? "error" : "loadeddata",
-      ));
+      element.load = () => queueMicrotask(() => {
+        const mediaFailures = {
+          abort: ["abort", null],
+          network: ["error", { code: 2, message: "connection lost" }],
+          decode: ["error", { code: 3, message: "decoder rejected frame" }],
+          unsupported: ["error", { code: 4, message: "codec unavailable" }],
+        };
+        const failure = mediaFailures[posterMode];
+        element.error = failure?.[1] ?? null;
+        element.dispatch(failure?.[0] || (element.src.includes("/warning-") ? "error" : "loadeddata"));
+      });
     }
     if (tagName === "canvas") {
       element.getContext = () => {
@@ -655,7 +663,20 @@ test("portfolio controls retain browser behavior", async (t) => {
   assert.equal(posterRequest.options.headers["content-type"], "image/jpeg");
   assert.equal(mediaRows.children[0].children[0].poster, "/portfolio/demo-poster.jpg");
 
-  for (const mode of ["decode", "canvas", "null-blob", "upload", "malformed"]) {
+  const mediaFailures = {
+    abort: "Thumbnail video load aborted for /portfolio/demo.mp4",
+    network: "Thumbnail video network error (code 2) for /portfolio/demo.mp4: connection lost",
+    decode: "Thumbnail video decode error (code 3) for /portfolio/demo.mp4: decoder rejected frame",
+    unsupported: "Thumbnail video source unsupported (code 4) for /portfolio/demo.mp4: codec unavailable",
+  };
+  for (const [mode, message] of Object.entries(mediaFailures)) {
+    posterMode = mode;
+    await thumbnailButton(mediaRows.children[0]).dispatch("click");
+    assert.equal(mediaRows.children[0].children[0].poster, "/portfolio/demo-poster.jpg");
+    assert.equal(elements.get("#status").textContent, message);
+  }
+
+  for (const mode of ["canvas", "null-blob", "upload", "malformed"]) {
     posterMode = mode;
     await thumbnailButton(mediaRows.children[0]).dispatch("click");
     assert.equal(mediaRows.children[0].children[0].poster, "/portfolio/demo-poster.jpg");
@@ -878,7 +899,7 @@ test("portfolio controls retain browser behavior", async (t) => {
 test("portfolio mode stores and serves MP4 media and rejects cross-origin POST", async (t) => {
   const root = createPortfolioRoot(t, { projects: [] });
   const origin = await startPortfolioServer(t, root);
-  const media = Buffer.from("mp4");
+  const media = Buffer.from("0123456789");
 
   const uploaded = await fetch(`${origin}/api/portfolio/media`, {
     method: "POST",
@@ -895,8 +916,26 @@ test("portfolio mode stores and serves MP4 media and rejects cross-origin POST",
   });
 
   const served = await fetch(`${origin}/portfolio/demo.mp4`);
+  assert.equal(served.status, 200);
   assert.equal(served.headers.get("content-type"), "video/mp4");
+  assert.equal(served.headers.get("accept-ranges"), "bytes");
+  assert.equal(served.headers.get("content-length"), String(media.length));
   assert.deepEqual(Buffer.from(await served.arrayBuffer()), media);
+
+  const ranged = await fetch(`${origin}/portfolio/demo.mp4`, { headers: { Range: "bytes=4-7" } });
+  assert.equal(ranged.status, 206);
+  assert.equal(ranged.headers.get("content-range"), `bytes 4-7/${media.length}`);
+  assert.equal(ranged.headers.get("content-length"), "4");
+  assert.equal(await ranged.text(), "4567");
+
+  const suffix = await fetch(`${origin}/portfolio/demo.mp4`, { headers: { Range: "bytes=-3" } });
+  assert.equal(suffix.status, 206);
+  assert.equal(suffix.headers.get("content-range"), `bytes 7-9/${media.length}`);
+  assert.equal(await suffix.text(), "789");
+
+  const unsatisfiable = await fetch(`${origin}/portfolio/demo.mp4`, { headers: { Range: "bytes=10-" } });
+  assert.equal(unsatisfiable.status, 416);
+  assert.equal(unsatisfiable.headers.get("content-range"), `bytes */${media.length}`);
 
   const rejected = await fetch(`${origin}/api/portfolio/media`, {
     method: "POST",
