@@ -1,5 +1,6 @@
 import Link from "next/link";
 import PortfolioGrid from "./PortfolioGrid";
+import { Fragment } from "react";
 import site from "@/content/site";
 import { getAllPortfolioProjects } from "@/lib/portfolio-content.mjs";
 import { getAllPosts } from "@/lib/posts";
@@ -16,12 +17,53 @@ export default function Home() {
   const projects = getAllPortfolioProjects();
   const posts = getAllPosts();
   const translations = getAllTranslations().slice(0, 5);
+  let revealIndex = 0;
+  const titleLines = site.identity.title.map((line) =>
+    line.split(" ").map((word) => ({
+      word,
+      characters: Array.from(word).map((character) => ({
+        character,
+        delay: `${revealIndex++ * 25}ms`,
+      })),
+    })),
+  );
 
   return (
     <>
       <section className="hero-grid" aria-labelledby="home-title">
-        <h1 id="home-title" className="display-title">
-          {site.identity.title}
+        <h1
+          id="home-title"
+          className="display-title"
+          aria-label={site.identity.title.join(" ")}
+        >
+          {titleLines.map((line, lineIndex) => (
+            <span
+              className="display-title-line"
+              aria-hidden="true"
+              key={site.identity.title[lineIndex]}
+            >
+              {line.map((word, wordIndex) => (
+                <Fragment key={`${word.word}-${wordIndex}`}>
+                  <span className="display-title-word">
+                    {word.characters.map((character, characterIndex) => (
+                      <span
+                        className="display-title-cut"
+                        key={`${character.character}-${characterIndex}`}
+                      >
+                        <span
+                          className="display-title-character"
+                          style={{ animationDelay: character.delay }}
+                        >
+                          {character.character}
+                        </span>
+                      </span>
+                    ))}
+                  </span>
+                  {wordIndex < line.length - 1 && " "}
+                </Fragment>
+              ))}
+            </span>
+          ))}
         </h1>
       </section>
 

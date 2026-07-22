@@ -65,10 +65,40 @@ a {
 .display-title {
   max-width: 16ch;
   margin: 0;
-  font-size: clamp(4rem, 10.5vw, 10.5rem);
+  font-size: clamp(4rem, 9vw, 10.5rem);
   font-weight: 600;
-  line-height: 0.9;
-  letter-spacing: -0.075em;
+  line-height: 1.1;
+  letter-spacing: -0.015em;
+}
+
+.display-title-line {
+  display: block;
+}
+
+.display-title-word,
+.display-title-cut,
+.display-title-character {
+  display: inline-block;
+}
+
+.display-title-word {
+  white-space: nowrap;
+}
+
+.display-title-cut {
+  overflow: hidden;
+  vertical-align: bottom;
+}
+
+.display-title-character {
+  transform: translateY(110%);
+  animation: display-title-reveal 700ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes display-title-reveal {
+  to {
+    transform: translateY(0);
+  }
 }
 
 .hero-grid {
@@ -451,6 +481,11 @@ textarea:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .display-title-character {
+    animation: none;
+    transform: none;
+  }
+
   *,
   *::before,
   *::after {
