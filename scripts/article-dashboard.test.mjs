@@ -475,7 +475,7 @@ test("portfolio mode serves the local dashboard and portfolio JSON APIs", async 
 });
 
 test("portfolio controls retain browser behavior", async (t) => {
-  const project = portfolioProject({
+  const draftProject = portfolioProject({
     period: "2026.01.02 — 2026.07.21",
     coverImage: { src: "/portfolio/old-cover.png", alt: "Old cover" },
     media: [{
@@ -486,7 +486,11 @@ test("portfolio controls retain browser behavior", async (t) => {
       posterSrc: "/portfolio/old-poster.jpg",
     }],
   });
-  const root = createPortfolioRoot(t, { projects: [project] });
+  const initialCanonicalProject = portfolioProject({
+    ...draftProject,
+    media: [{ kind: "video", src: "/portfolio/demo.mp4", caption: "Demo", size: "full" }],
+  });
+  const root = createPortfolioRoot(t, { projects: [initialCanonicalProject] });
   const origin = await startPortfolioServer(t, root);
   const html = await (await fetch(`${origin}/`)).text();
   const browserScript = html.match(/<script>([\s\S]*?)<\/script>/);
@@ -558,14 +562,17 @@ test("portfolio controls retain browser behavior", async (t) => {
   };
   let confirmCalls = 0;
   const requests = [];
-  let canonicalProject = project;
+  let canonicalProject = initialCanonicalProject;
   let publishCount = 0;
   const browserFetch = async (url, options = {}) => {
     requests.push({ url, options });
     let result;
     let responseOk = true;
     if (url === "/api/portfolio") result = { ok: true, projects: [canonicalProject] };
-    else if (url === "/api/portfolio/drafts") result = { ok: true, drafts: [] };
+    else if (url === "/api/portfolio/drafts") {
+      result = { ok: true, drafts: [{ fileName: "loutine.json", name: "Loutine", updatedAt: "2026-07-22T12:50:21.312Z" }] };
+    }
+    else if (url === "/api/portfolio/draft?file=loutine.json") result = { ok: true, project: draftProject };
     else if (url === "/api/portfolio/preview") result = { ok: true, html: "<p>preview</p>" };
     else if (url === "/api/portfolio/media") {
       const fileName = decodeURIComponent(options.headers["x-file-name"]);

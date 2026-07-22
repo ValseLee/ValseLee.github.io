@@ -1427,6 +1427,7 @@ function renderPortfolioDashboard(root) {
         draftSelect.append(option);
       }
       loadDraftButton.disabled = !result.drafts.length;
+      return result.drafts[0]?.fileName;
     }
 
     async function withAction(control, action) {
@@ -1598,9 +1599,12 @@ function renderPortfolioDashboard(root) {
     });
 
     Promise.all([requestJson("/api/portfolio"), refreshDrafts()])
-      .then(([portfolio]) => {
+      .then(async ([portfolio, draftFile]) => {
         state.projects = portfolio.projects;
-        setProject(state.projects[0] || emptyProject());
+        const draftProject = draftFile
+          ? await requestJson("/api/portfolio/draft?file=" + encodeURIComponent(draftFile)).then((result) => result.project, () => null)
+          : null;
+        setProject(draftProject || state.projects[0] || emptyProject());
       })
       .catch((error) => setStatus(error.message, "error"));
   </script>
