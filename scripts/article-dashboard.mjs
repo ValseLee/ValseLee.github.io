@@ -6,8 +6,6 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { micromark } from "micromark";
 import {
-  PORTFOLIO_IMAGE_EXTENSIONS,
-  PORTFOLIO_VIDEO_EXTENSIONS,
   createSlug,
   mergePortfolioProject,
   normalizePortfolioContent,
