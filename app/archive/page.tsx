@@ -15,7 +15,7 @@ export default function ArchivePage() {
 
       {years.map((year) => (
         <section key={year} className="mb-12">
-          <h2 className="font-serif text-2xl font-medium mb-6 text-accent">
+          <h2>
             {year}
           </h2>
           <ul className="space-y-3">

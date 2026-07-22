@@ -16,7 +16,7 @@ export default function CategoriesPage() {
         {categories.map((category) => (
           <section key={category.id}>
             <div className="mb-6">
-              <h2 className="font-serif text-2xl font-medium text-accent">
+              <h2>
                 {category.label}
               </h2>
               <p className="text-subtext text-sm mt-1">{category.description}</p>
