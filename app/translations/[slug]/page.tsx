@@ -38,7 +38,7 @@ export default async function TranslationPage({ params }: TranslationPageProps) 
   }
 
   return (
-    <article className="w-full max-w-[75vw] mx-auto py-12">
+    <article className="article-shell">
       <Link
         href="/translations"
         className="inline-block text-subtext hover:text-foreground transition-colors mb-8"
