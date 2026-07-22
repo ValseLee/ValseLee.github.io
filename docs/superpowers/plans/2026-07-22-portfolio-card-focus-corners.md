@@ -2,106 +2,86 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add the approved camera-focus corner animation to portfolio-card hover and keyboard focus states.
+**Goal:** Add the approved camera-focus corner animation to portfolio-card hover and keyboard focus states, with the site's ink-shadow values applied to the gradient corners.
 
-**Architecture:** Keep the behavior entirely in the existing `app/PortfolioGrid.module.css`. One `.card::after` pseudo-element draws four corners with native CSS backgrounds, while existing link markup, overlay behavior, focus outline, and static rendering remain unchanged.
+**Architecture:** Keep the corner behavior in the existing `app/PortfolioGrid.module.css`. Add a parallel `--ink-drop-shadow` token beside `--ink-shadow` in `app/globals.css` because the comma-separated text-shadow token cannot style background gradients, then consume the new token through one `filter` declaration on `.card::after`.
 
 **Tech Stack:** CSS Modules, native CSS transitions, Next.js 16 static export.
 
 ## Global Constraints
 
 - Work only in `/Users/celan/.herdr/worktrees/ValseLee.github.io/feature-portfolio-section`; do not create another worktree or child Codex.
-- Modify only `app/PortfolioGrid.module.css` during implementation.
+- Modify only `app/globals.css` and `app/PortfolioGrid.module.css` during implementation.
 - Preserve the existing uncommitted formatting and `.overlay { opacity: 0.3; }` change exactly.
-- Add no React, JavaScript, SVG, element, dependency, global style, token, or shared abstraction.
+- Preserve the later tuned `.card::after` opacity `0.3`, 250ms inset timing, 8px keyboard-focus inset, 16px pointer-hover inset, and 1px focus outline exactly.
+- Add no React, JavaScript, SVG, element, dependency, global selector, or shared abstraction.
+- The sole new shared value is `--ink-drop-shadow`, whose desktop and mobile layers mirror the existing `--ink-shadow` offsets, blur radii, and colors.
 - Keep the current external `:focus-visible` outline and overlay transition intact.
 - Limit pointer hover activation to `(hover:hover) and (pointer:fine)`; keyboard focus remains available independently.
 - Disable the corner transition under `prefers-reduced-motion: reduce` without hiding the active state.
-- Do not stage or commit `app/PortfolioGrid.module.css`: its pre-existing overlapping changes are user-owned and cannot be safely separated from this addition as a normal hunk.
+- Do not stage or commit either implementation path: `app/PortfolioGrid.module.css` contains overlapping user-owned changes, and the global token is incomplete without its consumer.
 
 ---
 
 ### Task 1: Add and verify the focus corners
 
 **Files:**
-- Modify: `app/PortfolioGrid.module.css:7-78`
+- Modify: `app/globals.css:2-10,387-390`
+- Modify: `app/PortfolioGrid.module.css:16-36`
 - Reference: `docs/superpowers/specs/2026-07-22-portfolio-card-focus-corners-design.md`
 
 **Interfaces:**
-- Consumes: the existing `.card`, `.card:focus-visible`, precise-hover media query, and reduced-motion media query.
-- Produces: a visual-only `.card::after` decoration; no exported API, DOM, content, or state change.
+- Consumes: the existing `--ink-shadow` desktop/mobile values and `.card::after` gradient decoration.
+- Produces: global `--ink-drop-shadow` desktop/mobile tokens and one visual-only filter consumer; no exported API, DOM, content, or state change.
 
 - [ ] **Step 1: Confirm the protected baseline**
 
 Run:
 
 ```bash
-git diff -- app/PortfolioGrid.module.css
+git diff -- app/globals.css app/PortfolioGrid.module.css
 ```
 
-Expected: the existing diff includes formatting changes and changes the precise-hover `.overlay` opacity from `0` to `0.3`. Stop if that baseline is missing or has changed unexpectedly.
+Expected: the existing diff includes formatting changes, `.overlay` opacity `0.3`, corner opacity `0.3`, 250ms inset timing, 8px focus inset, 16px hover inset, and a 1px focus outline. Stop if that baseline is missing or has changed unexpectedly.
 
-- [ ] **Step 2: Add the minimal corner decoration**
+- [ ] **Step 2: Add the global drop-shadow counterpart**
 
-Insert these rules after `.card`:
+Add this declaration immediately after the root `--ink-shadow` declaration:
 
 ```css
-.card::after {
-  content: "";
-  position: absolute;
-  z-index: 2;
-  inset: 6px;
-  pointer-events: none;
-  background:
-    linear-gradient(currentColor 0 0) left top / 20px 2px no-repeat,
-    linear-gradient(currentColor 0 0) left top / 2px 20px no-repeat,
-    linear-gradient(currentColor 0 0) right top / 20px 2px no-repeat,
-    linear-gradient(currentColor 0 0) right top / 2px 20px no-repeat,
-    linear-gradient(currentColor 0 0) left bottom / 20px 2px no-repeat,
-    linear-gradient(currentColor 0 0) left bottom / 2px 20px no-repeat,
-    linear-gradient(currentColor 0 0) right bottom / 20px 2px no-repeat,
-    linear-gradient(currentColor 0 0) right bottom / 2px 20px no-repeat;
-  opacity: 0;
-  transition: inset 220ms ease-out, opacity 160ms ease-out;
-}
-
-.card:focus-visible::after {
-  inset: 16px;
-  opacity: 1;
-}
+  --ink-drop-shadow: drop-shadow(0 0 1px rgba(0, 0, 0, 0.1)) drop-shadow(1px 1px 3px rgba(0, 0, 0, 0.3)) drop-shadow(-1px -1px 2px rgba(0, 0, 0, 0.1));
 ```
 
-Add this rule inside the existing precise-hover media query:
+Add this declaration immediately after the weaker `--ink-shadow` declaration inside the existing `@media (max-width: 860px)` query:
 
 ```css
-  .card:hover::after {
-    inset: 16px;
-    opacity: 1;
-  }
+    --ink-drop-shadow: drop-shadow(0 0 0.25px rgba(0, 0, 0, 0.1)) drop-shadow(0.25px 0.25px 0.75px rgba(0, 0, 0, 0.3)) drop-shadow(-0.25px -0.25px 0.5px rgba(0, 0, 0, 0.1));
 ```
 
-Add this rule inside the existing reduced-motion media query:
+Do not alter `--ink-shadow` or its current consumers.
+
+- [ ] **Step 3: Apply the token to the corners**
+
+Add one declaration to the existing `.card::after` rule immediately after its `background` declaration:
 
 ```css
-  .card::after {
-    transition: none;
-  }
+  filter: var(--ink-drop-shadow);
 ```
 
-Do not alter any existing declaration while inserting the rules.
+Do not alter the existing corner gradients, opacity, timing, insets, outline, hover, focus, or reduced-motion declarations.
 
-- [ ] **Step 3: Inspect the complete CSS diff**
+- [ ] **Step 4: Inspect the complete CSS diff**
 
 Run:
 
 ```bash
 git diff --check
-git diff -- app/PortfolioGrid.module.css
+git diff -- app/globals.css app/PortfolioGrid.module.css
 ```
 
-Expected: `git diff --check` prints nothing. The CSS diff retains the protected baseline and adds only the pseudo-element, active states, and reduced-motion override described in Step 2.
+Expected: `git diff --check` prints nothing. The implementation adds only two `--ink-drop-shadow` declarations to `app/globals.css` and one `filter` declaration to the protected `app/PortfolioGrid.module.css` baseline.
 
-- [ ] **Step 4: Run release checks for the CSS surface**
+- [ ] **Step 5: Run release checks for the CSS surface**
 
 Run:
 
@@ -112,7 +92,7 @@ npm run build
 
 Expected: both commands exit successfully; the build completes the static export after content verification.
 
-- [ ] **Step 5: Verify the rendered interaction**
+- [ ] **Step 6: Verify the rendered interaction**
 
 Run:
 
@@ -124,14 +104,15 @@ Open the printed local URL and verify:
 
 - Precise-pointer hover fades four white corners in while moving them from a 6px inset to a 16px inset.
 - Moving the pointer away reverses the transition.
-- Keyboard Tab focus shows the same final corners and retains the external focus outline.
+- Keyboard Tab focus shows full-opacity corners at the tuned 8px inset and retains the 1px external focus outline.
 - Touch/coarse-pointer emulation does not create a persistent hover decoration.
 - Reduced-motion emulation shows the active corners immediately with no movement.
 - Card navigation, cover images, name, period, and overlay behavior are unchanged.
+- The computed corner filter uses the desktop three-layer token above 860px and the weaker three-layer token at or below 860px.
 
 Stop the development server after inspection.
 
-- [ ] **Step 6: Leave the verified implementation unstaged for review**
+- [ ] **Step 7: Leave the verified implementation unstaged for review**
 
 Run:
 
@@ -140,4 +121,4 @@ git status --short
 git diff --cached --name-only
 ```
 
-Expected: `app/PortfolioGrid.module.css` remains modified but unstaged, no implementation path is staged, and all other pre-existing modified or untracked paths remain untouched.
+Expected: `app/globals.css` and `app/PortfolioGrid.module.css` remain modified but unstaged, no implementation path is staged, and all other pre-existing modified or untracked paths remain untouched.
