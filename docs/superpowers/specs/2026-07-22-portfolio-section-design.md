@@ -5,7 +5,7 @@
 
 ## Goal
 
-Turn homepage section 2 into a public portfolio grid backed by the canonical portfolio content, add an explicit optional project cover managed by the existing local dashboard, and provide a statically exported detail page for every project.
+Turn homepage section 2 into a public portfolio grid backed by the canonical portfolio content, add an explicit optional project cover managed by the existing local dashboard, let authors add ordinary project media by file input or dashboard-wide drag-and-drop, and provide a statically exported detail page for every project.
 
 ## Scope
 
@@ -15,6 +15,9 @@ Turn homepage section 2 into a public portfolio grid backed by the canonical por
 - A black card background when a project has no cover image.
 - A cover-specific image input, preview, replacement, alt-text field, and removal control in `npm run portfolio`.
 - Reuse of the existing `/api/portfolio/media` upload endpoint and `public/portfolio/` storage.
+- Dashboard-wide drag-and-drop for multiple ordinary image or MP4 files, appended in drop order.
+- One shared ordinary-media upload helper used by both drag-and-drop and the existing multiple-file input.
+- A visual drag-active state scoped to the ordinary media area.
 - A homepage section 2 grid with whole-card links to `/portfolio/<slug>`.
 - Project name and period overlays with hover, keyboard-focus, touch, responsive, and reduced-motion behavior.
 - A statically exported `/portfolio/[slug]` route with generated parameters, content-derived metadata, and normal 404 handling.
@@ -29,6 +32,7 @@ Turn homepage section 2 into a public portfolio grid backed by the canonical por
 - Automatically deleting replaced or removed cover files from `public/portfolio/`.
 - Redesigning the existing portfolio detail body or changing media order.
 - A deployed write API, client-side content fetching, new dependency, or JavaScript-driven hover animation.
+- A new upload endpoint, synthetic file-input event, drag-and-drop cover replacement, or removal of the accessible media file input.
 - Changes to homepage sections other than filling the approved section 2 slot.
 - Unrelated cleanup of the approved in-flight `app/page.tsx` and `app/globals.css` baseline.
 
@@ -39,7 +43,7 @@ Keep one content contract and separate its three responsibilities by their exist
 - `content/portfolio.json` remains the tracked, canonical build input.
 - `lib/portfolio.mjs` continues to own project normalization and validates the new cover field for every authoring, draft, verification, and public read path.
 - A small server-only reader in `lib/` loads and normalizes canonical portfolio content for the homepage and detail route. It exposes list and slug lookup operations rather than allowing routes to parse JSON independently.
-- `scripts/article-dashboard.mjs` remains the only authoring surface. It adds cover controls to its existing portfolio mode without adding an endpoint, server, or dependency.
+- `scripts/article-dashboard.mjs` remains the only authoring surface. It owns cover controls and ordinary-media input/drop behavior in its existing portfolio mode without adding an endpoint, server, or dependency. File input and drop call one shared sequential upload helper instead of redispatching an input event.
 - Homepage-specific grid composition stays under `app/` as a Server Component with a colocated CSS Module. It needs no state, effect, browser API, or `"use client"` boundary.
 - A shared `PortfolioProjectArticle` Server Component owns the existing detail presentation because the public detail route and draft detail route are now real consumers of the same rendering contract.
 - `app/portfolio/[slug]/page.tsx` owns routing, static parameters, metadata, canonical lookup, and `notFound()`.
@@ -92,6 +96,25 @@ Project selection, new-project reset, draft load/save, preview rendering, dirty-
 
 Publishing adds the cover path to the existing explicit referenced-media set. The build, staged-path overlap preflight, `git commit --only`, rollback, and push behavior remain unchanged. Replaced and removed files may remain unreferenced in `public/portfolio/`; automatic asset garbage collection is outside this feature.
 
+## Dashboard Ordinary Media Drag-and-Drop Flow
+
+The existing multiple-file input remains the labelled, keyboard-accessible way to add ordinary project media. Drag-and-drop is a pointer convenience layered onto the same behavior, not a replacement control.
+
+Dropping files anywhere inside the portfolio dashboard treats them as ordinary media, including a drop over the cover controls. The cover input and `project.coverImage` are never read or changed by this flow. While an external file drag is active over the dashboard, only the ordinary media area receives the visual highlight; the page shell, form, cover controls, and preview do not change appearance.
+
+The drag lifecycle follows native file-drag events:
+
+- `dragenter` and `dragover` activate the media-area highlight only when `dataTransfer.types` contains `Files`; `dragover` prevents the browser default and reports a copy drop effect.
+- Nested enter/leave transitions use a small drag-depth counter so moving across dashboard descendants does not flicker the highlight.
+- The final `dragleave` and every `drop` clear the counter and highlight.
+- `drop` prevents the browser from opening the files, copies `dataTransfer.files` into a stable array, and passes that array directly to the shared upload helper.
+
+The shared helper accepts an ordered collection of `File` objects and uploads them sequentially to `/api/portfolio/media`. Each successful response is converted to the existing ordinary-media shape and appended immediately to `state.project.media`: images receive empty caption and alt fields, while videos receive an empty caption. Sequential requests preserve the original input or drop order after all existing media.
+
+The existing file-input `change` handler calls the same helper with its selected files and then clears the input value. It does not construct or dispatch a synthetic event. Both entry paths retain the current dirty-state, media-row rendering, preview scheduling, and status-region behavior.
+
+If a file fails existing server MIME, extension, size, or path validation, the helper stops at that file and reports the existing server error. Media uploaded earlier in the same batch stays appended and stored; later files in that batch are not attempted. This preserves the dashboard's current sequential partial-success semantics without rollback or batch transactions.
+
 ## Public Homepage Grid
 
 Section 2 reads the normalized canonical project list and renders one semantic `Link` per project. The link wraps the entire card and points to `/portfolio/<slug>`, so pointer and keyboard users activate the same native navigation target without a click handler.
@@ -142,6 +165,18 @@ cover image input
   -> explicit canonical JSON, cover, and media commit paths
 ```
 
+### Ordinary media input and drop
+
+```text
+multiple file input OR dashboard file drop
+  -> ordered File array
+  -> shared sequential ordinary-media upload helper
+  -> POST each file to /api/portfolio/media
+  -> existing server validation and atomic public/portfolio/ write
+  -> append each success to project.media in request order
+  -> dirty state, media rows, preview, and status update
+```
+
 ### Static public rendering
 
 ```text
@@ -163,6 +198,9 @@ No deployed request reads from the filesystem or writes content after the static
 - The cover file input uses `accept="image/*"`, while server-side validation remains authoritative.
 - Failed cover upload or replacement preserves the previous cover state.
 - Removing a cover does not remove ordinary media or its file from disk.
+- File input and drag-and-drop use the same upload and append path, so their media shapes, order, and error messages cannot diverge.
+- Unsupported dropped files are rejected by the existing server boundary; successful earlier files remain, the failing file is not appended, and later files are not attempted.
+- Drop handling never mutates `coverImage`, even when the pointer is over the cover controls.
 - Invalid canonical portfolio content fails `verify:content` and the build instead of silently dropping the cover.
 - Invalid draft content uses the existing local draft error state.
 - A missing public project slug returns the normal 404 page.
@@ -178,6 +216,8 @@ No deployed request reads from the filesystem or writes content after the static
 - The grid collapses from two columns to one at the existing homepage breakpoint without horizontal scrolling.
 - `prefers-reduced-motion: reduce` removes overlay transition and transform animation. State changes remain immediate and content remains visible.
 - The black fallback preserves sufficient contrast for the text overlay.
+- The labelled multiple-file input remains available for keyboard and assistive-technology users; drag-and-drop is optional enhancement behavior.
+- The drag-active visual state is confined to the ordinary media area and does not rely on color to communicate upload success or failure; the existing live status region continues to report those outcomes.
 
 ## Testing and Verification
 
@@ -192,8 +232,12 @@ Extend the existing `node:test` surfaces with the smallest regressions that prov
 5. Portfolio dashboard HTML exposes the cover input, alt field, preview, replace, and remove controls.
 6. The embedded dashboard script compiles and preserves the previous cover when upload fails or returns a video.
 7. Successful image replacement, removal, project switching, and draft reload update the cover state without changing ordinary media.
+8. A file `dragover` prevents the browser default, uses a copy drop effect, and highlights only the ordinary media area until the drag leaves or drops.
+9. Dropping multiple image/MP4 files anywhere in the dashboard uploads sequentially and appends them after existing ordinary media in drop order without changing the cover.
+10. A failed item preserves earlier successful uploads and stops the remaining batch.
+11. The existing multiple-file input still uses the same helper and preserves its current upload, ordering, dirty-state, row-rendering, and preview behavior.
 
-Use the existing `node:vm` fake DOM/fetch boundary for dashboard browser-script behavior; do not add a browser test framework.
+Use the existing `node:vm` fake DOM/fetch boundary for dashboard browser-script behavior. Extend its fake events, `dataTransfer`, and media-area `classList` only as needed to prove dragover, drop, multiple-file order, partial success, and the file-input regression; do not add a browser test framework.
 
 ### Repository checks
 
@@ -226,8 +270,10 @@ Use a fresh local build or development server and inspect real computed layout a
 
 - Existing projects without covers remain valid and render as black portfolio cards.
 - The dashboard can upload, describe, replace, remove, draft, publish, and reload a separate image-only cover without affecting ordinary media.
+- Dropping multiple image/MP4 files anywhere in the portfolio dashboard appends them to ordinary media in drop order through the same helper as the accessible file input, while leaving the cover unchanged.
+- Only the ordinary media area highlights during a file drag, and unsupported files retain prior successful uploads under the existing server validation contract.
 - Homepage section 2 renders every canonical project in the approved responsive grid.
 - Every card is fully linked, keyboard accessible, touch legible, and motion-safe.
 - Every canonical project has a statically exported detail URL using the same renderer as its local draft preview.
 - Invalid cover data fails at the shared boundary, and failed dashboard replacement does not destroy the prior state.
-- No new dependency, deployed write path, client-side state layer, first-media convention, interim-only fallback implementation, unrelated homepage change, or asset cleanup system is added.
+- No new dependency, endpoint, deployed write path, client-side state layer, synthetic input event, first-media convention, interim-only fallback implementation, unrelated homepage change, or asset cleanup system is added.
