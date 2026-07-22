@@ -664,7 +664,6 @@ function renderDashboard(root) {
       <nav>
         <a href="/">[ Home ]</a>
         <a href="/archive">[ Archive ]</a>
-        <a href="/categories">[ Categories ]</a>
         <a href="/translations">[ Translations ]</a>
         <a class="active" href="/">[ Write ]</a>
       </nav>
