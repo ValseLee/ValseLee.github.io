@@ -11,6 +11,7 @@ import {
   normalizePortfolioContent,
   normalizePortfolioProject,
   normalizePortfolioSrc,
+  PORTFOLIO_MEDIA_WIDTHS,
 } from "../lib/portfolio.mjs";
 
 export { createSlug, mergePortfolioProject, normalizePortfolioContent, normalizePortfolioProject };
@@ -1104,6 +1105,8 @@ function renderPortfolioDashboard(root) {
     const commandLog = document.querySelector("#command-log");
     const emptyProject = () => ({ slug:"", name:"", period:"", descriptionMarkdown:"", media:[] });
     const state = { project:emptyProject(), projects:[], dirty:false, previewRequest:0 };
+    const mediaWidths = ${JSON.stringify(PORTFOLIO_MEDIA_WIDTHS)};
+    const mediaSizes = Object.keys(mediaWidths);
     const canonicalPeriod = /^(\\d{4}\\.\\d{2}\\.\\d{2}) — (Present|\\d{4}\\.\\d{2}\\.\\d{2})$/;
     const toIsoDate = (value) => value.replaceAll(".", "-");
     const toPeriodDate = (value) => value.replaceAll("-", ".");
@@ -1198,8 +1201,68 @@ function renderPortfolioDashboard(root) {
       const element = document.createElement(item.kind === "image" ? "img" : "video");
       element.src = item.src;
       if (item.kind === "image") element.alt = item.alt;
-      else { element.controls = true; element.preload = "metadata"; }
+      else {
+        element.controls = true;
+        element.preload = "metadata";
+        if (item.posterSrc) element.poster = item.posterSrc;
+      }
       return element;
+    }
+
+    function applyMediaSize(element, size) {
+      element.style.width = mediaWidths[size];
+      element.style.marginInline = "auto";
+    }
+
+    function loadVideoFrame(src) {
+      return new Promise((resolve, reject) => {
+        const video = document.createElement("video");
+        const cleanup = () => {
+          video.removeEventListener("loadeddata", loaded);
+          video.removeEventListener("error", failed);
+          video.removeEventListener("abort", failed);
+        };
+        const loaded = () => { cleanup(); resolve(video); };
+        const failed = () => { cleanup(); reject(new Error("Thumbnail video decode failed for " + src)); };
+        video.addEventListener("loadeddata", loaded);
+        video.addEventListener("error", failed);
+        video.addEventListener("abort", failed);
+        video.preload = "auto";
+        video.currentTime = 0;
+        video.src = src;
+        video.load();
+      });
+    }
+
+    function canvasJpeg(canvas) {
+      return new Promise((resolve, reject) => canvas.toBlob(
+        (blob) => blob ? resolve(blob) : reject(new Error("Thumbnail canvas returned no image")),
+        "image/jpeg",
+      ));
+    }
+
+    function posterFileName(src) {
+      const fileName = decodeURIComponent(src.split("/").at(-1));
+      return fileName.replace(/\\.[^.]+$/, "") + "-poster.jpg";
+    }
+
+    async function generateVideoPoster(item) {
+      const video = await loadVideoFrame(item.src);
+      if (!(video.videoWidth > 0 && video.videoHeight > 0)) throw new Error("Thumbnail video has no decoded frame");
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("Thumbnail canvas is unavailable");
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const blob = await canvasJpeg(canvas);
+      const file = new File([blob], posterFileName(item.src), { type:"image/jpeg" });
+      const stored = await uploadPortfolioFile(file, "Thumbnail upload failed");
+      if (stored.kind !== "image" || typeof stored.src !== "string") throw new Error("Thumbnail upload must return an image");
+      item.posterSrc = stored.src;
+      state.dirty = true;
+      renderMediaRows();
+      schedulePreview();
     }
 
     function mediaButton(label, action, disabled) {
@@ -1217,6 +1280,7 @@ function renderPortfolioDashboard(root) {
       state.project.media.forEach((item, index) => {
         const row = document.createElement("li");
         row.className = "media-row";
+        applyMediaSize(row, item.size);
         row.append(mediaElement(item));
         const storedPath = document.createElement("code");
         storedPath.className = "media-path";
@@ -1244,8 +1308,34 @@ function renderPortfolioDashboard(root) {
           row.append(altLabel);
         }
 
+        const sizeLabel = document.createElement("label");
+        sizeLabel.className = "media-size-field";
+        sizeLabel.textContent = "Size for " + item.src;
+        const sizeSelect = document.createElement("select");
+        for (const size of mediaSizes) {
+          const option = document.createElement("option");
+          option.value = size;
+          option.textContent = size;
+          sizeSelect.append(option);
+        }
+        sizeSelect.value = item.size;
+        sizeSelect.addEventListener("change", () => {
+          item.size = sizeSelect.value;
+          applyMediaSize(row, item.size);
+          markDirty();
+        });
+        sizeLabel.append(sizeSelect);
+        row.append(sizeLabel);
+
         const actions = document.createElement("div");
         actions.className = "media-actions";
+        if (item.kind === "video") {
+          const generateButton = mediaButton("Generate Thumbnail", () => withAction(generateButton, async () => {
+            await generateVideoPoster(item);
+            setStatus("Thumbnail generated", "ok");
+          }), false);
+          actions.append(generateButton);
+        }
         actions.append(
           mediaButton("Move Up", () => moveMedia(index, -1), index === 0),
           mediaButton("Move Down", () => moveMedia(index, 1), index === state.project.media.length - 1),
@@ -1269,6 +1359,7 @@ function renderPortfolioDashboard(root) {
       preview.replaceChildren(...(cover ? [cover] : []), title, period, markdown);
       for (const item of state.project.media) {
         const figure = document.createElement("figure");
+        applyMediaSize(figure, item.size);
         figure.append(mediaElement(item));
         const caption = document.createElement("figcaption");
         caption.textContent = item.caption;
@@ -1336,6 +1427,17 @@ function renderPortfolioDashboard(root) {
       finally { control.disabled = false; }
     }
 
+    async function uploadPortfolioFile(file, failureMessage = "Upload failed") {
+      const response = await fetch("/api/portfolio/media", {
+        method:"POST",
+        headers:{ "content-type":file.type, "x-file-name":encodeURIComponent(file.name) },
+        body:file,
+      });
+      const stored = await response.json();
+      if (!response.ok) throw new Error(stored.error || failureMessage);
+      return stored;
+    }
+
     for (const [input, field] of [[nameInput,"name"],[descriptionInput,"descriptionMarkdown"]]) {
       input.addEventListener("input", () => { state.project[field] = input.value; markDirty(); });
     }
@@ -1347,13 +1449,7 @@ function renderPortfolioDashboard(root) {
       const file = coverInput.files[0];
       if (!file) return;
       try {
-        const response = await fetch("/api/portfolio/media", {
-          method:"POST",
-          headers:{ "content-type":file.type, "x-file-name":encodeURIComponent(file.name) },
-          body:file,
-        });
-        const stored = await response.json();
-        if (!response.ok) throw new Error(stored.error || "Cover upload failed");
+        const stored = await uploadPortfolioFile(file, "Cover upload failed");
         if (stored.kind !== "image" || typeof stored.src !== "string") throw new Error("Cover must be an image");
         state.project.coverImage = { src:stored.src, alt:"" };
         markDirty();
@@ -1386,20 +1482,25 @@ function renderPortfolioDashboard(root) {
     });
 
     async function uploadMediaFiles(files) {
+      let firstPosterWarning = "";
       for (const file of files) {
-        const response = await fetch("/api/portfolio/media", {
-          method:"POST", headers:{ "content-type":file.type, "x-file-name":encodeURIComponent(file.name) }, body:file,
-        });
-        const stored = await response.json();
-        if (!response.ok) throw new Error(stored.error || "Upload failed");
-        state.project.media.push(stored.kind === "image"
-          ? { kind:"image", src:stored.src, caption:"", alt:"" }
-          : { kind:"video", src:stored.src, caption:"" });
+        const stored = await uploadPortfolioFile(file);
+        const item = stored.kind === "image"
+          ? { kind:"image", src:stored.src, caption:"", alt:"", size:"full" }
+          : { kind:"video", src:stored.src, caption:"", size:"full" };
+        state.project.media.push(item);
         state.dirty = true;
         renderMediaRows();
         schedulePreview();
+        if (item.kind === "video") {
+          try { await generateVideoPoster(item); }
+          catch (error) { if (!firstPosterWarning) firstPosterWarning = error.message; }
+        }
       }
-      setStatus("Media uploaded", "ok");
+      setStatus(
+        firstPosterWarning ? "Media uploaded; thumbnail warning: " + firstPosterWarning : "Media uploaded",
+        firstPosterWarning ? "error" : "ok",
+      );
     }
 
     mediaInput.addEventListener("change", () => withAction(mediaInput, async () => {

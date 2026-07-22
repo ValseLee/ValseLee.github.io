@@ -478,7 +478,13 @@ test("portfolio controls retain browser behavior", async (t) => {
   const project = portfolioProject({
     period: "2026.01.02 — 2026.07.21",
     coverImage: { src: "/portfolio/old-cover.png", alt: "Old cover" },
-    media: [{ kind: "video", src: "/portfolio/demo.mp4", caption: "Demo" }],
+    media: [{
+      kind: "video",
+      src: "/portfolio/demo.mp4",
+      caption: "Demo",
+      size: "small",
+      posterSrc: "/portfolio/old-poster.jpg",
+    }],
   });
   const root = createPortfolioRoot(t, { projects: [project] });
   const origin = await startPortfolioServer(t, root);
@@ -486,10 +492,13 @@ test("portfolio controls retain browser behavior", async (t) => {
   const browserScript = html.match(/<script>([\s\S]*?)<\/script>/);
   assert.ok(browserScript);
 
-  const createElement = () => {
+  let posterMode = "success";
+  const drawnFrames = [];
+  const createElement = (tagName = "div") => {
     const listeners = new Map();
     const classes = new Set();
-    return {
+    const element = {
+      tagName: tagName.toUpperCase(),
       value: "",
       checked: false,
       disabled: false,
@@ -504,11 +513,32 @@ test("portfolio controls retain browser behavior", async (t) => {
         contains(name) { return classes.has(name); },
       },
       addEventListener(type, listener) { listeners.set(type, listener); },
+      removeEventListener(type, listener) { if (listeners.get(type) === listener) listeners.delete(type); },
       dispatch(type, event = {}) { return listeners.get(type)?.({ preventDefault() {}, ...event }); },
+      listenerCount() { return listeners.size; },
       append(...children) { this.children.push(...children); },
       replaceChildren(...children) { this.children = children; },
     };
+    if (tagName === "video") {
+      element.videoWidth = 1280;
+      element.videoHeight = 720;
+      element.load = () => queueMicrotask(() => element.dispatch(
+        posterMode === "decode" || element.src.includes("/warning-") ? "error" : "loadeddata",
+      ));
+    }
+    if (tagName === "canvas") {
+      element.getContext = () => {
+        if (posterMode === "canvas") throw new Error("canvas failed");
+        return { drawImage(video, x, y, width, height) { drawnFrames.push({ video, x, y, width, height }); } };
+      };
+      element.toBlob = (callback, type) => callback(posterMode === "null-blob" ? null : { type });
+    }
+    return element;
   };
+
+  class FakeFile {
+    constructor(parts, name, options) { this.parts = parts; this.name = name; this.type = options.type; }
+  }
   const body = createElement();
   const selectors = ["portfolio-form", "project-select", "new-project", "name", "period-start", "period-end", "period-present", "cover-input", "cover-preview", "cover-alt", "remove-cover", "description-markdown", "media-area", "media-input", "media-rows", "draft-select", "load-draft", "save-draft", "publish", "preview", "status", "command-log"];
   const elements = new Map(selectors.map((id) => [`#${id}`, createElement()]));
@@ -538,6 +568,15 @@ test("portfolio controls retain browser behavior", async (t) => {
       } else if (fileName === "bad.txt") {
         responseOk = false;
         result = { ok: false, error: "unsupported portfolio media file" };
+      } else if (fileName.endsWith("-poster.jpg")) {
+        if (posterMode === "upload") {
+          responseOk = false;
+          result = { ok: false, error: "poster upload failed" };
+        } else if (posterMode === "malformed") {
+          result = { ok: true, kind: "video", src: "/portfolio/not-an-image.mp4" };
+        } else {
+          result = { ok: true, kind: "image", src: `/portfolio/${fileName}` };
+        }
       } else {
         const kind = fileName.endsWith(".mp4") ? "video" : "image";
         result = { ok: true, kind, src: `/portfolio/${fileName}` };
@@ -567,6 +606,7 @@ test("portfolio controls retain browser behavior", async (t) => {
       createElement,
     },
     fetch: browserFetch,
+    File: FakeFile,
     confirm: () => { confirmCalls += 1; return false; },
     structuredClone,
     clearTimeout() {},
@@ -583,10 +623,45 @@ test("portfolio controls retain browser behavior", async (t) => {
   const coverAlt = elements.get("#cover-alt");
   const removeCover = elements.get("#remove-cover");
   const preview = elements.get("#preview");
+  const mediaRows = elements.get("#media-rows");
+  const mediaPaths = () => mediaRows.children.map((row) => row.children[1].textContent);
+  const sizeControl = (row) => row.children.find(({ className }) => className === "media-size-field").children[0];
+  const thumbnailButton = (row) => row.children.at(-1).children.find(({ textContent }) => textContent === "Generate Thumbnail");
   assert.deepEqual(
     { start: start.value, end: end.value, present: present.checked, min: end.min, disabled: end.disabled, required: end.required },
     { start: "2026-01-02", end: "2026-07-21", present: false, min: "2026-01-02", disabled: false, required: true },
   );
+
+  assert.equal(mediaRows.children[0].style.width, "45%");
+  assert.equal(mediaRows.children[0].style.marginInline, "auto");
+  assert.equal(mediaRows.children[0].children[0].poster, "/portfolio/old-poster.jpg");
+  assert.deepEqual(sizeControl(mediaRows.children[0]).children.map(({ value }) => value), ["mini", "small", "medium", "large", "full"]);
+
+  sizeControl(mediaRows.children[0]).value = "medium";
+  sizeControl(mediaRows.children[0]).dispatch("change");
+  assert.equal(mediaRows.children[0].style.width, "65%");
+  assert.equal(preview.children[4].style.width, "65%");
+  assert.equal(preview.children[4].style.marginInline, "auto");
+
+  await thumbnailButton(mediaRows.children[0]).dispatch("click");
+  const drawnFrame = drawnFrames.at(-1);
+  assert.deepEqual(
+    { x: drawnFrame.x, y: drawnFrame.y, width: drawnFrame.width, height: drawnFrame.height },
+    { x: 0, y: 0, width: 1280, height: 720 },
+  );
+  assert.equal(drawnFrame.video.listenerCount(), 0);
+  const posterRequest = requests.filter(({ url, options }) =>
+    url === "/api/portfolio/media" && decodeURIComponent(options.headers["x-file-name"]) === "demo-poster.jpg").at(-1);
+  assert.equal(posterRequest.options.headers["content-type"], "image/jpeg");
+  assert.equal(mediaRows.children[0].children[0].poster, "/portfolio/demo-poster.jpg");
+
+  for (const mode of ["decode", "canvas", "null-blob", "upload", "malformed"]) {
+    posterMode = mode;
+    await thumbnailButton(mediaRows.children[0]).dispatch("click");
+    assert.equal(mediaRows.children[0].children[0].poster, "/portfolio/demo-poster.jpg");
+    assert.match(elements.get("#status").textContent, /thumbnail|poster|canvas/i);
+  }
+  posterMode = "success";
 
   coverInput.files = [{ name: "rejected.mp4", type: "video/mp4" }];
   await coverInput.dispatch("change");
@@ -640,8 +715,6 @@ test("portfolio controls retain browser behavior", async (t) => {
 
   const mediaArea = elements.get("#media-area");
   const mediaInput = elements.get("#media-input");
-  const mediaRows = elements.get("#media-rows");
-  const mediaPaths = () => mediaRows.children.map((row) => row.children[1].textContent);
   const dropped = {
     types: ["Files"],
     files: [
@@ -697,11 +770,12 @@ test("portfolio controls retain browser behavior", async (t) => {
   assert.equal(mediaArea.classList.contains("drag-active"), false);
   assert.deepEqual(mediaPaths().slice(-1), ["/portfolio/kept.png"]);
   assert.match(elements.get("#status").textContent, /unsupported portfolio media file/);
-  const uploadedNames = requests
+  const uploadedNames = () => requests
     .filter(({ url }) => url === "/api/portfolio/media")
     .map(({ options }) => decodeURIComponent(options.headers["x-file-name"]));
-  assert.deepEqual(uploadedNames.slice(-4), ["drop-one.png", "drop-two.mp4", "kept.png", "bad.txt"]);
-  assert.equal(uploadedNames.includes("skipped.mp4"), false);
+  const ordinaryUploadedNames = () => uploadedNames().filter((name) => !name.endsWith("-poster.jpg"));
+  assert.deepEqual(ordinaryUploadedNames().slice(-4), ["drop-one.png", "drop-two.mp4", "kept.png", "bad.txt"]);
+  assert.equal(ordinaryUploadedNames().includes("skipped.mp4"), false);
 
   mediaInput.files = [
     { name: "input.png", type: "image/png" },
@@ -710,18 +784,48 @@ test("portfolio controls retain browser behavior", async (t) => {
   await mediaInput.dispatch("change");
   assert.equal(mediaInput.value, "");
   assert.deepEqual(mediaPaths().slice(-2), ["/portfolio/input.png", "/portfolio/input.mp4"]);
+  assert.deepEqual(ordinaryUploadedNames().slice(-2), ["input.png", "input.mp4"]);
+
+  const warningBatch = {
+    types: ["Files"],
+    files: [
+      { name: "warning-first.mp4", type: "video/mp4" },
+      { name: "after-warning.png", type: "image/png" },
+      { name: "warning-second.mp4", type: "video/mp4" },
+      { name: "later.mp4", type: "video/mp4" },
+    ],
+    dropEffect: "none",
+  };
+  body.dispatch("dragenter", { dataTransfer: warningBatch });
+  await body.dispatch("drop", { dataTransfer: warningBatch, preventDefault() {} });
+  assert.deepEqual(mediaPaths().slice(-4), [
+    "/portfolio/warning-first.mp4",
+    "/portfolio/after-warning.png",
+    "/portfolio/warning-second.mp4",
+    "/portfolio/later.mp4",
+  ]);
+  assert.match(elements.get("#status").textContent, /warning.*warning-first\.mp4/i);
+  assert.doesNotMatch(elements.get("#status").textContent, /warning-second\.mp4/i);
+  assert.equal(uploadedNames().includes("warning-first-poster.jpg"), false);
+  assert.equal(uploadedNames().includes("warning-second-poster.jpg"), false);
+  assert.equal(uploadedNames().includes("later-poster.jpg"), true);
+  assert.equal(coverPreview.children[0].src, "/portfolio/new-cover.png");
 
   elements.get("#save-draft").dispatch("click");
   await settle();
   const mediaDraft = JSON.parse(draftPosts().at(-1).options.body);
   assert.deepEqual(mediaDraft.coverImage, { src: "/portfolio/new-cover.png", alt: "New cover" });
-  assert.deepEqual(mediaDraft.media.map(({ kind, src }) => ({ kind, src })), [
-    { kind: "video", src: "/portfolio/demo.mp4" },
-    { kind: "image", src: "/portfolio/drop-one.png" },
-    { kind: "video", src: "/portfolio/drop-two.mp4" },
-    { kind: "image", src: "/portfolio/kept.png" },
-    { kind: "image", src: "/portfolio/input.png" },
-    { kind: "video", src: "/portfolio/input.mp4" },
+  assert.deepEqual(mediaDraft.media.map(({ kind, src, size, posterSrc }) => ({ kind, src, size, ...(posterSrc ? { posterSrc } : {}) })), [
+    { kind: "video", src: "/portfolio/demo.mp4", size: "medium", posterSrc: "/portfolio/demo-poster.jpg" },
+    { kind: "image", src: "/portfolio/drop-one.png", size: "full" },
+    { kind: "video", src: "/portfolio/drop-two.mp4", size: "full", posterSrc: "/portfolio/drop-two-poster.jpg" },
+    { kind: "image", src: "/portfolio/kept.png", size: "full" },
+    { kind: "image", src: "/portfolio/input.png", size: "full" },
+    { kind: "video", src: "/portfolio/input.mp4", size: "full", posterSrc: "/portfolio/input-poster.jpg" },
+    { kind: "video", src: "/portfolio/warning-first.mp4", size: "full" },
+    { kind: "image", src: "/portfolio/after-warning.png", size: "full" },
+    { kind: "video", src: "/portfolio/warning-second.mp4", size: "full" },
+    { kind: "video", src: "/portfolio/later.mp4", size: "full", posterSrc: "/portfolio/later-poster.jpg" },
   ]);
 
   removeCover.dispatch("click");
