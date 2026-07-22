@@ -75,7 +75,7 @@ for (const relPath of searchableFiles) {
   assert(!forbidden.test(read(relPath)), `${relPath} contains old admin/Celan-Log coupling`);
 }
 const home = read("app/page.tsx");
-for (const section of ["about", "expertise", "articles", "experience", "contact"]) {
+for (const section of ["about", "portfolio", "articles", "experience", "contact"]) {
   assert(home.includes(`id=\"${section}\"`), `home missing ${section} section`);
 }
 assert(home.includes("site.contact.email &&"), "home must hide the email link when contact.email is empty");

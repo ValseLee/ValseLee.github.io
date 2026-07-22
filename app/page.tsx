@@ -1,5 +1,7 @@
 import Link from "next/link";
+import PortfolioGrid from "./PortfolioGrid";
 import site from "@/content/site";
+import { getAllPortfolioProjects } from "@/lib/portfolio-content.mjs";
 import { getAllPosts } from "@/lib/posts";
 import { formatTranslationDate, getAllTranslations } from "@/lib/translations";
 
@@ -11,6 +13,7 @@ const formatDate = (value: string) =>
   }).format(new Date(value));
 
 export default function Home() {
+  const projects = getAllPortfolioProjects();
   const posts = getAllPosts();
   const translations = getAllTranslations().slice(0, 5);
 
@@ -26,12 +29,14 @@ export default function Home() {
         <div className="section-number" aria-hidden="true">
           1
         </div>
+
         <div className="section-content two-column-copy">
           <div>
             <p className="eyebrow">{site.about.updated}</p>
             <h2>About</h2>
             <p>{site.about.bio}</p>
           </div>
+
           <div>
             <h3>Practice</h3>
             <p>{site.about.practice}</p>
@@ -41,14 +46,8 @@ export default function Home() {
               ))}
             </ol>
           </div>
-        </div>
-      </section>
 
-      <section id="expertise" className="section-grid">
-        <div className="section-number" aria-hidden="true">
-          2
-        </div>
-        <div className="section-content expertise-grid">
+          <div className="expertise-grid">
           {site.expertise.map((group) => (
             <div key={group.label}>
               <h2>{group.label}</h2>
@@ -60,6 +59,15 @@ export default function Home() {
             </div>
           ))}
         </div>
+
+        </div>
+      </section>
+
+      <section id="portfolio" className="section-grid">
+        <div className="section-number" aria-hidden="true">
+          2
+        </div>
+        <PortfolioGrid projects={projects} />
       </section>
 
       <section id="articles" className="section-grid">
