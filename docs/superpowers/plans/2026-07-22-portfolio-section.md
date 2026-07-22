@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Publish canonical portfolio projects in homepage section 2 with optional dashboard-managed covers and statically exported detail pages.
+**Goal:** Publish canonical portfolio projects in homepage section 2 with optional dashboard-managed covers and statically exported detail pages, and let authors append ordinary image/MP4 media through the accessible file input or dashboard-wide drag-and-drop.
 
-**Architecture:** Extend the existing portfolio normalizer with one optional image-only cover and add one small canonical reader for the homepage and detail route. Keep authoring in the existing localhost dashboard, reuse `/api/portfolio/media`, render the public grid without client JavaScript, and extract the current draft detail markup only when the public route becomes its second consumer.
+**Architecture:** Extend the existing portfolio normalizer with one optional image-only cover and add one small canonical reader for the homepage and detail route. Keep authoring in the existing localhost dashboard, reuse `/api/portfolio/media`, and route the ordinary-media input and body-level file-drop events through one sequential upload helper while leaving the cover flow separate. Render the public grid without client JavaScript, and extract the current draft detail markup only when the public route becomes its second consumer.
 
 **Tech Stack:** Next.js 16 App Router/static export, React 19 Server Components, strict TypeScript, Node.js built-ins and `node:test`, `next-mdx-remote`, CSS Modules.
 
@@ -15,6 +15,7 @@
 - Reuse `content/portfolio.json`, `public/portfolio/`, `.portfolio-drafts/`, `scripts/article-dashboard.mjs`, and `/api/portfolio/media`.
 - `coverImage` stays optional and separate from `media`; never infer it from the first media item.
 - Covers accept only existing portfolio image extensions and require non-empty alt text; missing covers render black.
+- Ordinary-media input and drop share one sequential helper; a failed file stops the batch after preserving prior successes, and drop never changes `coverImage` or dispatches a synthetic input event.
 - Do not delete orphaned cover files, reorder detail media, redesign the detail body, or add crop/focal-point behavior.
 - Preserve the approved homepage baseline except where Task 3 fills section 2; its recorded blobs are `app/page.tsx` = `47edb7b4c723216286f8a047410e1decd8819f36` and `app/globals.css` = `654ef0e53e7a97bbb0ff48b1d526f9a50a70f6bd`. Do not substitute a newer primary-checkout version or clean unrelated code.
 - Use semantic emoji commits and do not push.
@@ -687,6 +688,397 @@ git log --oneline -4
 
 Expected: clean status, the three Task 1-3 semantic commits, and no push.
 
+---
+
+### Task 5: Add dashboard-wide ordinary-media drag-and-drop
+
+**Files:**
+- Modify: `scripts/article-dashboard.mjs:995-1393`
+- Modify: `scripts/article-dashboard.test.mjs:395-630`
+
+**Interfaces:**
+- Consumes: the existing `/api/portfolio/media` response `{ ok: true, kind: "image" | "video", src: string } | { ok: false, error: string }`, `state.project.media`, `withAction(control, action)`, `renderMediaRows()`, and `schedulePreview()`.
+- Produces: `uploadMediaFiles(files: File[]): Promise<void>`; `#media-area`; body-level `dragenter`, `dragover`, `dragleave`, and `drop` behavior that accepts native `File` objects, highlights only `#media-area`, and never reads or mutates `state.project.coverImage`.
+
+- [ ] **Step 1: Extend the existing node:vm test with failing drag-and-drop behavior**
+
+In the served-dashboard test, add `media-area` to the existing ID list and require the owned drop surface:
+
+```js
+for (const id of ["project-select", "new-project", "name", "period-start", "period-end", "period-present", "cover-input", "cover-preview", "cover-alt", "remove-cover", "description-markdown", "media-area", "media-input", "media-rows", "draft-select", "load-draft", "save-draft", "publish", "preview", "status", "command-log"]) {
+  assert.match(html, new RegExp(`id=["']${id}["']`));
+}
+assert.match(html, /id="media-area" class="media-drop-area"/);
+```
+
+In `portfolio controls retain browser behavior`, replace the fake-element event boundary with this version so the existing test can pass exact native-like drag events and inspect the highlight class:
+
+```js
+const createElement = () => {
+  const listeners = new Map();
+  const classes = new Set();
+  return {
+    value: "",
+    checked: false,
+    disabled: false,
+    required: false,
+    min: "",
+    files: [],
+    children: [],
+    style: {},
+    classList: {
+      add(...names) { names.forEach((name) => classes.add(name)); },
+      remove(...names) { names.forEach((name) => classes.delete(name)); },
+      contains(name) { return classes.has(name); },
+    },
+    addEventListener(type, listener) { listeners.set(type, listener); },
+    dispatch(type, event = {}) {
+      return listeners.get(type)?.({ preventDefault() {}, ...event });
+    },
+    append(...children) { this.children.push(...children); },
+    replaceChildren(...children) { this.children = children; },
+  };
+};
+const body = createElement();
+```
+
+Add `media-area` to `selectors`, and expose that same `body` to the inline script:
+
+```js
+const selectors = ["portfolio-form", "project-select", "new-project", "name", "period-start", "period-end", "period-present", "cover-input", "cover-preview", "cover-alt", "remove-cover", "description-markdown", "media-area", "media-input", "media-rows", "draft-select", "load-draft", "save-draft", "publish", "preview", "status", "command-log"];
+
+vm.runInNewContext(browserScript[1], {
+  document: {
+    body,
+    querySelector: (selector) => elements.get(selector),
+    createElement,
+  },
+  fetch: browserFetch,
+  confirm: () => { confirmCalls += 1; return false; },
+  structuredClone,
+  clearTimeout() {},
+  setTimeout(callback) { callback(); return 1; },
+});
+```
+
+Inside `browserFetch`, insert `let responseOk = true;` immediately after `let result;`, replace only the `/api/portfolio/media` branch with the following branch, and replace the function's final response object with the shown return. Cover and ordinary-media requests then resolve deterministically by filename, including one server rejection:
+
+```js
+else if (url === "/api/portfolio/media") {
+  const fileName = decodeURIComponent(options.headers["x-file-name"]);
+  if (fileName === "rejected.mp4") {
+    result = { ok: true, kind: "video", src: "/portfolio/rejected.mp4" };
+  } else if (fileName === "new-cover.png") {
+    result = { ok: true, kind: "image", src: "/portfolio/new-cover.png" };
+  } else if (fileName === "bad.txt") {
+    responseOk = false;
+    result = { ok: false, error: "unsupported portfolio media file" };
+  } else {
+    const kind = fileName.endsWith(".mp4") ? "video" : "image";
+    result = { ok: true, kind, src: `/portfolio/${fileName}` };
+  }
+}
+
+return { ok: responseOk, status: responseOk ? 200 : 400, json: async () => result };
+```
+
+After the existing successful cover-draft assertions and before `removeCover.dispatch("click")`, add the lifecycle, ordering, partial-success, cover-isolation, and input-regression checks:
+
+```js
+const mediaArea = elements.get("#media-area");
+const mediaInput = elements.get("#media-input");
+const mediaRows = elements.get("#media-rows");
+const mediaPaths = () => mediaRows.children.map((row) => row.children[1].textContent);
+const dropped = {
+  types: ["Files"],
+  files: [
+    { name: "drop-one.png", type: "image/png" },
+    { name: "drop-two.mp4", type: "video/mp4" },
+  ],
+  dropEffect: "none",
+};
+
+body.dispatch("dragenter", { dataTransfer: dropped });
+body.dispatch("dragenter", { dataTransfer: dropped });
+assert.equal(mediaArea.classList.contains("drag-active"), true);
+assert.equal(body.classList.contains("drag-active"), false);
+assert.equal(coverPreview.classList.contains("drag-active"), false);
+let overPrevented = false;
+body.dispatch("dragover", {
+  dataTransfer: dropped,
+  preventDefault() { overPrevented = true; },
+});
+assert.deepEqual({ overPrevented, dropEffect: dropped.dropEffect }, { overPrevented: true, dropEffect: "copy" });
+body.dispatch("dragleave", { dataTransfer: dropped });
+assert.equal(mediaArea.classList.contains("drag-active"), true);
+body.dispatch("dragleave", { dataTransfer: dropped });
+assert.equal(mediaArea.classList.contains("drag-active"), false);
+body.dispatch("dragenter", { dataTransfer: dropped });
+
+let dropPrevented = false;
+await body.dispatch("drop", {
+  dataTransfer: dropped,
+  target: coverPreview,
+  preventDefault() { dropPrevented = true; },
+});
+assert.equal(dropPrevented, true);
+assert.equal(mediaArea.classList.contains("drag-active"), false);
+assert.deepEqual(mediaPaths(), [
+  "/portfolio/demo.mp4",
+  "/portfolio/drop-one.png",
+  "/portfolio/drop-two.mp4",
+]);
+assert.equal(coverPreview.children[0].src, "/portfolio/new-cover.png");
+
+const partial = {
+  types: ["Files"],
+  files: [
+    { name: "kept.png", type: "image/png" },
+    { name: "bad.txt", type: "text/plain" },
+    { name: "skipped.mp4", type: "video/mp4" },
+  ],
+  dropEffect: "none",
+};
+body.dispatch("dragenter", { dataTransfer: partial });
+await body.dispatch("drop", { dataTransfer: partial, preventDefault() {} });
+assert.equal(mediaArea.classList.contains("drag-active"), false);
+assert.deepEqual(mediaPaths().slice(-1), ["/portfolio/kept.png"]);
+assert.match(elements.get("#status").textContent, /unsupported portfolio media file/);
+const uploadedNames = requests
+  .filter(({ url }) => url === "/api/portfolio/media")
+  .map(({ options }) => decodeURIComponent(options.headers["x-file-name"]));
+assert.deepEqual(uploadedNames.slice(-4), ["drop-one.png", "drop-two.mp4", "kept.png", "bad.txt"]);
+assert.equal(uploadedNames.includes("skipped.mp4"), false);
+
+mediaInput.files = [
+  { name: "input.png", type: "image/png" },
+  { name: "input.mp4", type: "video/mp4" },
+];
+await mediaInput.dispatch("change");
+assert.equal(mediaInput.value, "");
+assert.deepEqual(mediaPaths().slice(-2), ["/portfolio/input.png", "/portfolio/input.mp4"]);
+
+elements.get("#save-draft").dispatch("click");
+await settle();
+const mediaDraft = JSON.parse(draftPosts().at(-1).options.body);
+assert.deepEqual(mediaDraft.coverImage, { src: "/portfolio/new-cover.png", alt: "New cover" });
+assert.deepEqual(mediaDraft.media.map(({ kind, src }) => ({ kind, src })), [
+  { kind: "video", src: "/portfolio/demo.mp4" },
+  { kind: "image", src: "/portfolio/drop-one.png" },
+  { kind: "video", src: "/portfolio/drop-two.mp4" },
+  { kind: "image", src: "/portfolio/kept.png" },
+  { kind: "image", src: "/portfolio/input.png" },
+  { kind: "video", src: "/portfolio/input.mp4" },
+]);
+```
+
+The exact upload-name assertions prove one sequential request per dropped file, no synthetic input redispatch, drop order, stop-on-first-failure, and continued file-input behavior. Leave every existing `preview.children[2]` period assertion unchanged.
+
+- [ ] **Step 2: Run the focused test and confirm RED**
+
+Run:
+
+```bash
+node --test --test-name-pattern='portfolio mode serves|portfolio controls retain' scripts/article-dashboard.test.mjs
+```
+
+Expected: FAIL because `#media-area`, its drag-active styling, the shared upload helper, and the body drag listeners do not exist.
+
+- [ ] **Step 3: Add the owned media area and shared sequential helper**
+
+Wrap only the existing ordinary-media input and rows; keep the labelled multiple-file input as the keyboard and assistive-technology fallback:
+
+```html
+<div id="media-area" class="media-drop-area">
+  <div class="field"><label for="media-input">Images or MP4 files</label><input id="media-input" type="file" multiple accept="image/*,video/mp4" /></div>
+  <ol id="media-rows"></ol>
+</div>
+```
+
+Add the highlight style beside the existing media styles. Do not animate it:
+
+```css
+.media-drop-area { border:1px solid transparent; border-radius:16px; margin:0 -12px 16px; padding:12px; }
+.media-drop-area.drag-active { border-color:var(--foreground); background:rgba(255,255,255,.06); }
+```
+
+Query the new owner beside `mediaInput` and `mediaRows`:
+
+```js
+const mediaArea = document.querySelector("#media-area");
+```
+
+Replace the current `mediaInput` upload loop with one helper plus a clearing file-input adapter:
+
+```js
+async function uploadMediaFiles(files) {
+  for (const file of files) {
+    const response = await fetch("/api/portfolio/media", {
+      method:"POST",
+      headers:{ "content-type":file.type, "x-file-name":encodeURIComponent(file.name) },
+      body:file,
+    });
+    const stored = await response.json();
+    if (!response.ok) throw new Error(stored.error || "Upload failed");
+    state.project.media.push(stored.kind === "image"
+      ? { kind:"image", src:stored.src, caption:"", alt:"" }
+      : { kind:"video", src:stored.src, caption:"" });
+    state.dirty = true;
+    renderMediaRows();
+    schedulePreview();
+  }
+  setStatus("Media uploaded", "ok");
+}
+
+mediaInput.addEventListener("change", () => withAction(mediaInput, async () => {
+  const files = Array.from(mediaInput.files);
+  try { await uploadMediaFiles(files); }
+  finally { mediaInput.value = ""; }
+}));
+```
+
+The helper appends each success immediately and awaits before starting the next file, so a thrown server error naturally preserves prior rows and prevents later requests.
+
+- [ ] **Step 4: Add body-level native file-drag lifecycle**
+
+Add this beside the media input listener. It adds a class only to `#media-area`, copies `File` objects into an array before uploading, and never calls the cover handler:
+
+```js
+const hasDraggedFiles = (event) => Array.from(event.dataTransfer?.types || []).includes("Files");
+let mediaDragDepth = 0;
+
+function resetMediaDrag() {
+  mediaDragDepth = 0;
+  mediaArea.classList.remove("drag-active");
+}
+
+document.body.addEventListener("dragenter", (event) => {
+  if (!hasDraggedFiles(event)) return;
+  event.preventDefault();
+  mediaDragDepth += 1;
+  mediaArea.classList.add("drag-active");
+});
+
+document.body.addEventListener("dragover", (event) => {
+  if (!hasDraggedFiles(event)) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "copy";
+  mediaArea.classList.add("drag-active");
+});
+
+document.body.addEventListener("dragleave", (event) => {
+  if (!hasDraggedFiles(event)) return;
+  mediaDragDepth = Math.max(0, mediaDragDepth - 1);
+  if (mediaDragDepth === 0) mediaArea.classList.remove("drag-active");
+});
+
+document.body.addEventListener("drop", (event) => {
+  const isFileDrop = hasDraggedFiles(event);
+  const files = isFileDrop ? Array.from(event.dataTransfer.files) : [];
+  resetMediaDrag();
+  if (!isFileDrop) return;
+  event.preventDefault();
+  return withAction(mediaInput, () => uploadMediaFiles(files));
+});
+```
+
+- [ ] **Step 5: Run focused and repository GREEN checks**
+
+Run:
+
+```bash
+node --test --test-name-pattern='portfolio mode serves|portfolio controls retain' scripts/article-dashboard.test.mjs
+npm run test:article-dashboard
+npm test
+npm run verify:content
+npm run lint
+npm run build
+git diff --check
+```
+
+Expected: all PASS; `npm test` retains the full repository test count, `verify:content` reports one portfolio project, and the build still statically exports `/portfolio/loutine` without `out/drafts`.
+
+- [ ] **Step 6: Capture fresh browser proof on an isolated temporary dashboard root**
+
+From the repository root, create a disposable authoring root and start the real portfolio server on a fresh port so proof uploads cannot dirty tracked or untracked workspace paths:
+
+```bash
+portfolio_proof_root=$(mktemp -d)
+mkdir -p "$portfolio_proof_root/content" "$portfolio_proof_root/public/portfolio"
+cp content/portfolio.json "$portfolio_proof_root/content/portfolio.json"
+(
+  cd "$portfolio_proof_root"
+  PORTFOLIO_DASHBOARD_PORT=4321 node /Users/celan/.herdr/worktrees/ValseLee.github.io/feature-portfolio-section/scripts/article-dashboard.mjs portfolio
+)
+```
+
+Open `http://127.0.0.1:4321` in a fresh browser surface. If `DataTransfer`, `File`, and `DragEvent` are available, evaluate this setup and record the active class plus computed border/background:
+
+```js
+const mediaArea = document.querySelector("#media-area");
+const coverBefore = document.querySelector("#cover-preview img")?.getAttribute("src") ?? null;
+const transfer = new DataTransfer();
+transfer.items.add(new File([new Uint8Array([137, 80, 78, 71])], "drop-proof.png", { type:"image/png" }));
+transfer.items.add(new File([new Uint8Array([0, 0, 0, 24, 102, 116, 121, 112])], "drop-proof.mp4", { type:"video/mp4" }));
+document.body.dispatchEvent(new DragEvent("dragenter", { bubbles:true, cancelable:true, dataTransfer:transfer }));
+({
+  active: mediaArea.classList.contains("drag-active"),
+  borderColor: getComputedStyle(mediaArea).borderColor,
+  backgroundColor: getComputedStyle(mediaArea).backgroundColor,
+});
+```
+
+Expected before drop: `active` is `true`, the media-area border is visible, and the cover/preview/page shell have no `drag-active` class. Then dispatch the real drop and wait for sequential requests:
+
+```js
+document.body.dispatchEvent(new DragEvent("drop", { bubbles:true, cancelable:true, dataTransfer:transfer }));
+await new Promise((resolve) => setTimeout(resolve, 300));
+({
+  active: mediaArea.classList.contains("drag-active"),
+  rows: [...document.querySelectorAll("#media-rows .media-path")].slice(-2).map((node) => node.textContent),
+  coverUnchanged: (document.querySelector("#cover-preview img")?.getAttribute("src") ?? null) === coverBefore,
+});
+```
+
+Expected after drop: `active` is `false`, rows end with `[/portfolio/drop-proof.png, /portfolio/drop-proof.mp4]` in that order, and `coverUnchanged` is `true`.
+
+If the browser surface lacks any of those constructors, record the missing constructor, rerun the exact node:vm event proof, and prove the CSS state directly in the browser:
+
+```bash
+node --test --test-name-pattern='portfolio controls retain browser behavior' scripts/article-dashboard.test.mjs
+```
+
+```js
+const mediaArea = document.querySelector("#media-area");
+mediaArea.classList.add("drag-active");
+const computed = getComputedStyle(mediaArea);
+const proof = { borderColor: computed.borderColor, backgroundColor: computed.backgroundColor };
+mediaArea.classList.remove("drag-active");
+proof;
+```
+
+Stop only the port-4321 server. Validate and remove only the disposable root created above:
+
+```bash
+case "$portfolio_proof_root" in
+  /tmp/*|/private/tmp/*|/var/folders/*) rm -rf -- "$portfolio_proof_root" ;;
+  *) echo "refusing unexpected proof root: $portfolio_proof_root"; exit 1 ;;
+esac
+```
+
+- [ ] **Step 7: Commit only the dashboard behavior and its regression**
+
+```bash
+git add scripts/article-dashboard.mjs scripts/article-dashboard.test.mjs
+git diff --cached --check
+git diff --cached --stat
+git diff --cached --name-only
+git commit -m "✨ feat: add portfolio media drag and drop"
+git status --short
+```
+
+Expected: the staged and committed paths are exactly the dashboard script and its existing test; final status is clean and nothing is pushed.
+
 ## Execution Handoff
 
-Execution mode is already selected: **Inline Execution** in this same Herdr worktree. After this plan is reviewed, invoke `superpowers:executing-plans`, run Tasks 1-4 in order, and stop at each test and commit gate before continuing.
+Tasks 1-4 are completed historical work and remain unchanged above. Execution mode is **Inline Execution** in this same Herdr worktree; after critical review, invoke `superpowers:executing-plans` and execute only Task 5, stopping at every RED, GREEN, browser-proof, and commit gate.
