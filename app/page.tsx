@@ -66,6 +66,7 @@ export default function Home() {
       <section id="portfolio" className="section-grid">
         <div className="section-number" aria-hidden="true">
           2
+          <h4>프로젝트</h4>
         </div>
         <PortfolioGrid projects={projects} />
       </section>
