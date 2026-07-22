@@ -1,11 +1,5 @@
 export const POST_CATEGORIES = [
   {
-    id: "build-log",
-    label: "Build Log",
-    description: "제품과 프로젝트를 만들어 가는 기록",
-    graphColor: "#595959",
-  },
-  {
     id: "founder-notes",
     label: "Founder Notes",
     description: "창업과 운영 과정에서 얻은 생각",
