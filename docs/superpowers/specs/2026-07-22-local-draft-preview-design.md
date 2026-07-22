@@ -50,7 +50,7 @@ Rejected alternatives:
 
 ## Development-Only Boundary
 
-`NODE_ENV === "development"` is the only condition that enables draft access. `next.config.ts` adds the compound `dev.tsx` page extension only in development, so production page discovery ignores both draft route files before compilation or static parameter collection. This is the primary production boundary.
+`NODE_ENV === "development"` is the only condition that enables draft access. `next.config.ts` adds the compound `dev.tsx` page extension only in development, so production page discovery ignores both draft route files before route collection, execution, or static parameter generation. This is the primary production boundary.
 
 - `/drafts` and its detail route exist as `page.dev.tsx` files and are discovered only by `next dev`.
 - The detail route enumerates local drafts through `generateStaticParams()` during development and sets `dynamicParams = false`, so an ungenerated slug cannot render.
@@ -131,4 +131,4 @@ After the production build, inspect `out/` for `/drafts/articles/`, `/drafts/por
 - Portfolio drafts use the shared project validator, `MDXRemote`, and native ordered media elements.
 - Missing and invalid drafts fail safely and do not break other previews.
 - A production static export contains no renderable draft page or draft content.
-- No implementation plan, public portfolio page, authoring change, dependency, or unrelated refactor is part of this work.
+- Product commits do not include the implementation plan, a public portfolio page, authoring changes, dependencies, or unrelated refactors.
