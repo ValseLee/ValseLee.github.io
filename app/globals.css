@@ -295,6 +295,13 @@ textarea:focus-visible {
 }
 
 /* MDX Content Styles */
+.article-shell {
+  width: 100%;
+  max-width: 75vw;
+  margin-inline: auto;
+  padding-block: 3rem;
+}
+
 .prose {
   max-width: 75vw;
   margin-inline: auto;

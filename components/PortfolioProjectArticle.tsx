@@ -4,7 +4,7 @@ import type { PortfolioProject } from "@/lib/portfolio.mjs";
 
 export default function PortfolioProjectArticle({ project }: { project: PortfolioProject }) {
   return (
-    <article className="w-full max-w-[75vw] mx-auto py-12">
+    <article className="article-shell">
       <header className="mb-12">
         <p className="text-subtext text-sm mb-2">{project.period}</p>
         <h1 className="font-serif text-4xl md:text-5xl font-semibold">{project.name}</h1>
