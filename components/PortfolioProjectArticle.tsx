@@ -1,5 +1,4 @@
 import { MDXRemote } from "next-mdx-remote/rsc";
-import { PORTFOLIO_MEDIA_WIDTHS } from "@/lib/portfolio.mjs";
 import type { PortfolioProject } from "@/lib/portfolio.mjs";
 
 export default function PortfolioProjectArticle({ project }: { project: PortfolioProject }) {
@@ -10,12 +9,9 @@ export default function PortfolioProjectArticle({ project }: { project: Portfoli
         <h1 className="font-serif text-4xl md:text-5xl font-semibold">{project.name}</h1>
       </header>
       <div className="prose"><MDXRemote source={project.descriptionMarkdown} /></div>
-      <div className="mt-12 space-y-8">
+      <div className="mt-12 grid grid-cols-1 gap-8 md:grid-cols-2 xl:grid-cols-3">
         {project.media.map((media, index) => (
-          <figure
-            key={`${media.src}-${index}`}
-            style={{ width: PORTFOLIO_MEDIA_WIDTHS[media.size], marginInline: "auto" }}
-          >
+          <figure key={`${media.src}-${index}`}>
             {media.kind === "image" ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img className="w-full" src={media.src} alt={media.alt} />
