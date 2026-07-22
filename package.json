@@ -11,10 +11,11 @@
     "write": "node scripts/article-dashboard.mjs",
     "portfolio": "node scripts/article-dashboard.mjs portfolio",
     "test:article-dashboard": "node --test scripts/article-dashboard.test.mjs",
+    "test:portfolio-content": "node --test lib/portfolio-content.test.mjs",
     "test:draft-preview": "node --test lib/draft-preview.test.mjs",
     "test:post-excerpt": "node --test lib/post-excerpt.test.mjs",
     "test:portfolio-boundary": "node --test scripts/portfolio-shared-boundary.test.mjs",
-    "test": "npm run test:article-dashboard && npm run test:portfolio-boundary && npm run test:post-excerpt && npm run test:draft-preview"
+    "test": "npm run test:article-dashboard && npm run test:portfolio-content && npm run test:portfolio-boundary && npm run test:post-excerpt && npm run test:draft-preview"
   },
   "dependencies": {
     "@mdx-js/loader": "^3.1.1",

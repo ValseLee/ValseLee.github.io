@@ -38,6 +38,7 @@ test("normalizePortfolioProject preserves ordered image and video media", () => 
     name: " Loutine ",
     period: " 2025.01 — Present ",
     descriptionMarkdown: "## Project description",
+    coverImage: { src: "/portfolio/cover.webp", alt: " Project cover " },
     media: [
       { kind: "image", src: "/portfolio/home.png", caption: " Home ", alt: " Home screen " },
       { kind: "video", src: "/portfolio/demo.mp4", caption: " Demo ", alt: "discard me" },
@@ -49,6 +50,7 @@ test("normalizePortfolioProject preserves ordered image and video media", () => 
     name: "Loutine",
     period: "2025.01 — Present",
     descriptionMarkdown: "## Project description",
+    coverImage: { src: "/portfolio/cover.webp", alt: "Project cover" },
     media: [
       { kind: "image", src: "/portfolio/home.png", caption: "Home", alt: "Home screen" },
       { kind: "video", src: "/portfolio/demo.mp4", caption: "Demo" },
@@ -83,6 +85,19 @@ test("normalizePortfolioProject rejects invalid project fields", () => {
   for (const [input, error] of cases) assert.throws(() => normalizePortfolioProject(input), error);
   assert.throws(() => normalizePortfolioProject(null), /project/i);
   assert.throws(() => normalizePortfolioContent({ projects: [valid, valid] }), /duplicate.*slug/i);
+});
+
+test("normalizePortfolioProject accepts an omitted cover and rejects invalid covers", () => {
+  const valid = portfolioProject();
+  assert.equal(Object.hasOwn(normalizePortfolioProject(valid), "coverImage"), false);
+  for (const [coverImage, error] of [
+    [null, /coverImage/i],
+    [[], /coverImage/i],
+    [{ src: "/portfolio/cover.webp", alt: "" }, /coverImage\.alt/i],
+    [{ src: "/portfolio/demo.mp4", alt: "Demo" }, /coverImage\.src.*image/i],
+    [{ src: "/portfolio/cover.txt", alt: "Cover" }, /coverImage\.src/i],
+    [{ src: "/portfolio/../cover.png", alt: "Cover" }, /coverImage\.src/i],
+  ]) assert.throws(() => normalizePortfolioProject({ ...valid, coverImage }), error);
 });
 
 test("savePortfolioMedia stores MP4 uploads and suffixes collisions", (t) => {
@@ -158,6 +173,7 @@ test("portfolio drafts round-trip and failed replacement preserves the previous 
     name: "Loutine",
     period: "2025",
     descriptionMarkdown: "Description",
+    coverImage: { src: "/portfolio/cover.png", alt: "Cover" },
     media: [{ kind: "video", src: "/portfolio/demo.mp4", caption: "Demo" }],
   };
 
@@ -236,6 +252,7 @@ test("publishPortfolioProject updates by slug and stages only canonical JSON and
     projects: [portfolioProject({ slug: "first", name: "First" }), portfolioProject({ slug: "loutine", name: "Old" })],
   });
   fs.mkdirSync(path.join(root, "public", "portfolio"), { recursive: true });
+  fs.writeFileSync(path.join(root, "public", "portfolio", "cover.png"), "cover");
   fs.writeFileSync(path.join(root, "public", "portfolio", "demo.mp4"), "mp4");
   const calls = [];
   const runner = async (command, args, cwd) => {
@@ -248,7 +265,12 @@ test("publishPortfolioProject updates by slug and stages only canonical JSON and
   );
 
   const result = await publishPortfolioProject(
-    portfolioProject({ slug: "loutine", name: "Loutine", media: [{ kind: "video", src: "/portfolio/demo.mp4", caption: "Demo" }] }),
+    portfolioProject({
+      slug: "loutine",
+      name: "Loutine",
+      coverImage: { src: "/portfolio/cover.png", alt: "Cover" },
+      media: [{ kind: "video", src: "/portfolio/demo.mp4", caption: "Demo" }],
+    }),
     root,
     new Date("2026-07-21T00:00:00.000Z"),
     runner,
@@ -257,10 +279,10 @@ test("publishPortfolioProject updates by slug and stages only canonical JSON and
   assert.equal(result.committed, true);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(root, "content", "portfolio.json"), "utf8")).projects.map(({ slug }) => slug), ["first", "loutine"]);
   assert.deepEqual(calls.map(({ command, args, cwd }) => [command, args, cwd]), [
-    ["git", ["diff", "--cached", "--quiet", "--", "content/portfolio.json", "public/portfolio/demo.mp4"], root],
+    ["git", ["diff", "--cached", "--quiet", "--", "content/portfolio.json", "public/portfolio/cover.png", "public/portfolio/demo.mp4"], root],
     ["npm", ["run", "build"], root],
-    ["git", ["add", "--", "content/portfolio.json", "public/portfolio/demo.mp4"], root],
-    ["git", ["commit", "--only", "-m", "2026-07-21 update portfolio - Loutine", "--", "content/portfolio.json", "public/portfolio/demo.mp4"], root],
+    ["git", ["add", "--", "content/portfolio.json", "public/portfolio/cover.png", "public/portfolio/demo.mp4"], root],
+    ["git", ["commit", "--only", "-m", "2026-07-21 update portfolio - Loutine", "--", "content/portfolio.json", "public/portfolio/cover.png", "public/portfolio/demo.mp4"], root],
     ["git", ["push"], root],
   ]);
 });
@@ -662,8 +684,8 @@ test("portfolio endpoints reject invalid preview Markdown and oversized media be
     });
     request.on("error", reject);
     const chunk = Buffer.alloc(1024 * 1024);
-    for (let index = 0; index < 51; index += 1) request.write(chunk);
-    request.end();
+    for (let index = 0; index < 50; index += 1) request.write(chunk);
+    request.end(Buffer.alloc(1));
   });
 
   assert.equal(streamed.status, 413);

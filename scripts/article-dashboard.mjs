@@ -108,7 +108,8 @@ export async function publishPortfolioProject(rawProject, root = process.cwd(), 
     return { ok: true, committed: false, slug: project.slug, filePath: relativeFilePath, commitMessage, logs };
   }
 
-  const mediaPaths = [...new Set(project.media.map(({ src }) => path.join("public", src.slice(1))))];
+  const mediaSources = [project.coverImage?.src, ...project.media.map(({ src }) => src)].filter(Boolean);
+  const mediaPaths = [...new Set(mediaSources.map((src) => path.join("public", src.slice(1))))];
   const stagedPaths = [relativeFilePath, ...mediaPaths];
   const modulesPath = path.join(root, "node_modules");
   const linkedModulesPath = fs.lstatSync(modulesPath, { throwIfNoEntry: false })?.isSymbolicLink()
