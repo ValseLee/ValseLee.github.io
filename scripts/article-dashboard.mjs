@@ -1014,6 +1014,8 @@ function renderPortfolioDashboard(root) {
     #media-rows { list-style:none; padding:0; display:grid; gap:14px; }
     .media-row { border:1px solid var(--border); border-radius:16px; padding:14px; }
     .media-row img,.media-row video,#preview img,#preview video { width:100%; max-height:280px; object-fit:contain; border-radius:10px; background:#050505; }
+    .cover-preview { min-height:160px; margin:10px 0; display:grid; place-items:center; border-radius:10px; background:#050505; color:var(--subtext); overflow:hidden; }
+    .cover-preview img { width:100%; max-height:280px; object-fit:contain; }
     .media-path { display:block; overflow-wrap:anywhere; margin:8px 0 12px; }
     #preview .markdown { line-height:1.7; overflow-wrap:anywhere; }
     #preview figure { margin:20px 0 0; }
@@ -1042,6 +1044,14 @@ function renderPortfolioDashboard(root) {
             <label class="checkbox"><input id="period-present" type="checkbox" /> Present</label>
           </div>
         </div>
+        <div class="field">
+          <label for="cover-input">Cover image</label>
+          <input id="cover-input" type="file" accept="image/*" />
+          <div id="cover-preview" class="cover-preview"></div>
+          <label for="cover-alt">Cover alt</label>
+          <input id="cover-alt" disabled />
+          <button id="remove-cover" type="button" class="secondary" disabled>Remove Cover</button>
+        </div>
         <div class="field"><label for="description-markdown">Markdown description</label><textarea id="description-markdown" maxlength="50000" required></textarea></div>
         <div class="field"><label for="media-input">Images or MP4 files</label><input id="media-input" type="file" multiple accept="image/*,video/mp4" /></div>
         <ol id="media-rows"></ol>
@@ -1067,6 +1077,10 @@ function renderPortfolioDashboard(root) {
     const periodStartInput = document.querySelector("#period-start");
     const periodEndInput = document.querySelector("#period-end");
     const periodPresentInput = document.querySelector("#period-present");
+    const coverInput = document.querySelector("#cover-input");
+    const coverPreview = document.querySelector("#cover-preview");
+    const coverAltInput = document.querySelector("#cover-alt");
+    const removeCoverButton = document.querySelector("#remove-cover");
     const descriptionInput = document.querySelector("#description-markdown");
     const mediaInput = document.querySelector("#media-input");
     const mediaRows = document.querySelector("#media-rows");
@@ -1109,9 +1123,28 @@ function renderPortfolioDashboard(root) {
       periodEndInput.min = periodStartInput.value;
     }
 
+    function renderCoverControls() {
+      const cover = state.project.coverImage;
+      coverAltInput.disabled = !cover;
+      coverAltInput.required = Boolean(cover);
+      coverAltInput.value = cover?.alt || "";
+      removeCoverButton.disabled = !cover;
+      if (cover) {
+        const image = document.createElement("img");
+        image.src = cover.src;
+        image.alt = cover.alt;
+        coverPreview.replaceChildren(image);
+      } else {
+        const empty = document.createElement("span");
+        empty.textContent = "No cover";
+        coverPreview.replaceChildren(empty);
+      }
+    }
+
     function syncFields() {
       nameInput.value = state.project.name;
       syncPeriodFields();
+      renderCoverControls();
       descriptionInput.value = state.project.descriptionMarkdown;
     }
 
@@ -1221,7 +1254,8 @@ function renderPortfolioDashboard(root) {
       period.textContent = state.project.period;
       const markdown = document.createElement("div");
       markdown.className = "markdown";
-      preview.replaceChildren(title, period, markdown);
+      const cover = state.project.coverImage ? mediaElement({ kind:"image", ...state.project.coverImage }) : null;
+      preview.replaceChildren(...(cover ? [cover] : []), title, period, markdown);
       for (const item of state.project.media) {
         const figure = document.createElement("figure");
         figure.append(mediaElement(item));
@@ -1297,6 +1331,38 @@ function renderPortfolioDashboard(root) {
     periodStartInput.addEventListener("input", updatePeriod);
     periodEndInput.addEventListener("input", updatePeriod);
     periodPresentInput.addEventListener("change", updatePeriod);
+
+    coverInput.addEventListener("change", () => withAction(coverInput, async () => {
+      const file = coverInput.files[0];
+      if (!file) return;
+      try {
+        const response = await fetch("/api/portfolio/media", {
+          method:"POST",
+          headers:{ "content-type":file.type, "x-file-name":encodeURIComponent(file.name) },
+          body:file,
+        });
+        const stored = await response.json();
+        if (!response.ok) throw new Error(stored.error || "Cover upload failed");
+        if (stored.kind !== "image" || typeof stored.src !== "string") throw new Error("Cover must be an image");
+        state.project.coverImage = { src:stored.src, alt:"" };
+        markDirty();
+        renderCoverControls();
+      } finally {
+        coverInput.value = "";
+      }
+    }));
+
+    coverAltInput.addEventListener("input", () => {
+      if (!state.project.coverImage) return;
+      state.project.coverImage.alt = coverAltInput.value;
+      markDirty();
+    });
+
+    removeCoverButton.addEventListener("click", () => {
+      delete state.project.coverImage;
+      markDirty();
+      renderCoverControls();
+    });
 
     projectSelect.addEventListener("change", () => {
       const project = state.projects.find((item) => item.slug === projectSelect.value);

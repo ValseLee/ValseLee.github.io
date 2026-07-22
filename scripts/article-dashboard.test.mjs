@@ -400,12 +400,13 @@ test("portfolio mode serves the local dashboard and portfolio JSON APIs", async 
   const dashboard = await fetch(`${origin}/`);
   const html = await dashboard.text();
   assert.equal(dashboard.status, 200);
-  for (const id of ["project-select", "new-project", "name", "period-start", "period-end", "period-present", "description-markdown", "media-input", "media-rows", "draft-select", "load-draft", "save-draft", "publish", "preview", "status", "command-log"]) {
+  for (const id of ["project-select", "new-project", "name", "period-start", "period-end", "period-present", "cover-input", "cover-preview", "cover-alt", "remove-cover", "description-markdown", "media-input", "media-rows", "draft-select", "load-draft", "save-draft", "publish", "preview", "status", "command-log"]) {
     assert.match(html, new RegExp(`id=["']${id}["']`));
   }
   assert.match(html, /<input id="period-start" type="date" required/);
   assert.match(html, /<input id="period-end" type="date" required/);
   assert.match(html, /<input id="period-present" type="checkbox"/);
+  assert.match(html, /id="cover-input" type="file" accept="image\/\*"/);
   assert.doesNotMatch(html, /id="article-form"/);
   const browserScript = html.match(/<script>([\s\S]*?)<\/script>/);
   assert.ok(browserScript);
@@ -433,8 +434,12 @@ test("portfolio mode serves the local dashboard and portfolio JSON APIs", async 
   assert.deepEqual(loaded.project, project);
 });
 
-test("portfolio period controls retain their browser behavior", async (t) => {
-  const project = portfolioProject({ period: "2026.01.02 — 2026.07.21" });
+test("portfolio controls retain browser behavior", async (t) => {
+  const project = portfolioProject({
+    period: "2026.01.02 — 2026.07.21",
+    coverImage: { src: "/portfolio/old-cover.png", alt: "Old cover" },
+    media: [{ kind: "video", src: "/portfolio/demo.mp4", caption: "Demo" }],
+  });
   const root = createPortfolioRoot(t, { projects: [project] });
   const origin = await startPortfolioServer(t, root);
   const html = await (await fetch(`${origin}/`)).text();
@@ -458,7 +463,7 @@ test("portfolio period controls retain their browser behavior", async (t) => {
       replaceChildren(...children) { this.children = children; },
     };
   };
-  const selectors = ["portfolio-form", "project-select", "new-project", "name", "period-start", "period-end", "period-present", "description-markdown", "media-input", "media-rows", "draft-select", "load-draft", "save-draft", "publish", "preview", "status", "command-log"];
+  const selectors = ["portfolio-form", "project-select", "new-project", "name", "period-start", "period-end", "period-present", "cover-input", "cover-preview", "cover-alt", "remove-cover", "description-markdown", "media-input", "media-rows", "draft-select", "load-draft", "save-draft", "publish", "preview", "status", "command-log"];
   const elements = new Map(selectors.map((id) => [`#${id}`, createElement()]));
   let formValid = false;
   let validityChecks = 0;
@@ -469,6 +474,7 @@ test("portfolio period controls retain their browser behavior", async (t) => {
   let confirmCalls = 0;
   const requests = [];
   let canonicalProject = project;
+  let mediaUploadCount = 0;
   let publishCount = 0;
   const browserFetch = async (url, options = {}) => {
     requests.push({ url, options });
@@ -476,6 +482,12 @@ test("portfolio period controls retain their browser behavior", async (t) => {
     if (url === "/api/portfolio") result = { ok: true, projects: [canonicalProject] };
     else if (url === "/api/portfolio/drafts") result = { ok: true, drafts: [] };
     else if (url === "/api/portfolio/preview") result = { ok: true, html: "<p>preview</p>" };
+    else if (url === "/api/portfolio/media") {
+      mediaUploadCount += 1;
+      result = mediaUploadCount === 1
+        ? { ok: true, kind: "video", src: "/portfolio/rejected.mp4" }
+        : { ok: true, kind: "image", src: "/portfolio/new-cover.png" };
+    }
     else if (url === "/api/portfolio/draft" && options.method === "POST") {
       const submitted = JSON.parse(options.body);
       result = { ok: true, project: { ...submitted, slug: submitted.slug || "stable-project" } };
@@ -510,17 +522,35 @@ test("portfolio period controls retain their browser behavior", async (t) => {
   const start = elements.get("#period-start");
   const end = elements.get("#period-end");
   const present = elements.get("#period-present");
+  const coverInput = elements.get("#cover-input");
+  const coverPreview = elements.get("#cover-preview");
+  const coverAlt = elements.get("#cover-alt");
+  const removeCover = elements.get("#remove-cover");
   const preview = elements.get("#preview");
   assert.deepEqual(
     { start: start.value, end: end.value, present: present.checked, min: end.min, disabled: end.disabled, required: end.required },
     { start: "2026-01-02", end: "2026-07-21", present: false, min: "2026-01-02", disabled: false, required: true },
   );
 
+  coverInput.files = [{ name: "rejected.mp4", type: "video/mp4" }];
+  await coverInput.dispatch("change");
+  assert.equal(coverPreview.children[0].src, "/portfolio/old-cover.png");
+
+  coverInput.files = [{ name: "new-cover.png", type: "image/png" }];
+  await coverInput.dispatch("change");
+  assert.equal(coverPreview.children[0].src, "/portfolio/new-cover.png");
+  assert.equal(coverAlt.required, true);
+  assert.equal(coverAlt.value, "");
+
+  coverAlt.value = "New cover";
+  coverAlt.dispatch("input");
+  assert.equal(preview.children[0].src, "/portfolio/new-cover.png");
+
   start.value = "2026-02-03";
   start.dispatch("input");
   end.value = "2026-08-22";
   end.dispatch("input");
-  assert.equal(preview.children[1].textContent, "2026.02.03 — 2026.08.22");
+  assert.equal(preview.children[2].textContent, "2026.02.03 — 2026.08.22");
   elements.get("#new-project").dispatch("click");
   assert.equal(confirmCalls, 1);
   assert.equal(start.value, "2026-02-03");
@@ -528,12 +558,12 @@ test("portfolio period controls retain their browser behavior", async (t) => {
   end.value = "2026-01-01";
   end.dispatch("input");
   assert.equal(end.min, "2026-02-03");
-  assert.equal(preview.children[1].textContent, "");
+  assert.equal(preview.children[2].textContent, "");
 
   present.checked = true;
   present.dispatch("change");
   assert.deepEqual(
-    { end: end.value, disabled: end.disabled, required: end.required, preview: preview.children[1].textContent },
+    { end: end.value, disabled: end.disabled, required: end.required, preview: preview.children[2].textContent },
     { end: "", disabled: true, required: false, preview: "2026.02.03 — Present" },
   );
 
@@ -548,6 +578,15 @@ test("portfolio period controls retain their browser behavior", async (t) => {
   assert.equal(validityChecks, 2);
   assert.equal(draftPosts().length, 1);
   assert.equal(JSON.parse(draftPosts()[0].options.body).period, "2026.02.03 — Present");
+  const coverDraft = JSON.parse(draftPosts().at(-1).options.body);
+  assert.deepEqual(coverDraft.coverImage, { src: "/portfolio/new-cover.png", alt: "New cover" });
+  assert.equal(coverDraft.media.length, 1);
+
+  removeCover.dispatch("click");
+  assert.equal(coverAlt.disabled, true);
+  assert.match(coverPreview.children[0].textContent, /No cover/i);
+  elements.get("#save-draft").dispatch("click");
+  await settle();
 
   elements.get("#new-project").dispatch("click");
   const name = elements.get("#name");
