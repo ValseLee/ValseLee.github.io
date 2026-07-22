@@ -36,7 +36,7 @@ Add one App Router subtree for all draft previews:
 /drafts/portfolio/<slug>
 ```
 
-Use one detail route at `app/drafts/[kind]/[slug]/page.tsx`; `kind` accepts only `articles` or `portfolio`.
+Use `app/drafts/page.dev.tsx` for the index and one detail route at `app/drafts/[kind]/[slug]/page.dev.tsx`; `kind` accepts only `articles` or `portfolio`.
 
 `/drafts` is required because ignored draft filenames are otherwise undiscoverable from the blog. It lists article and portfolio drafts in separate sections and links only to the dedicated preview routes. No public page links back to the index.
 
@@ -50,13 +50,15 @@ Rejected alternatives:
 
 ## Development-Only Boundary
 
-`NODE_ENV === "development"` is the only condition that enables draft access. The boundary is enforced before any draft directory is inspected or any draft file is read.
+`NODE_ENV === "development"` is the only condition that enables draft access. `next.config.ts` adds the compound `dev.tsx` page extension only in development, so production page discovery ignores both draft route files before compilation or static parameter collection. This is the primary production boundary.
 
-- `/drafts` calls `notFound()` outside development before listing files.
-- Draft detail `generateStaticParams()` returns an empty array outside development.
-- Draft detail routes set `dynamicParams = false`, so an ungenerated slug cannot render.
-- Direct draft-reader calls outside development return no entries or a disabled result without touching the filesystem.
+- `/drafts` and its detail route exist as `page.dev.tsx` files and are discovered only by `next dev`.
+- The detail route enumerates local drafts through `generateStaticParams()` during development and sets `dynamicParams = false`, so an ungenerated slug cannot render.
+- The index still calls `notFound()` unless draft preview is enabled.
+- Direct draft-reader calls outside development return no entries or a disabled result before touching the filesystem; this reader guard is the second defense.
 - No separate environment variable can enable draft previews during `next build`.
+
+This file-discovery boundary is required by the verified Next.js 16 behavior: with `output: "export"`, a discovered dynamic route must produce at least one prerendered route, so an empty static-parameter set is rejected rather than treated as a route-exclusion mechanism.
 
 The production static-export check must prove that `out/` contains no generated article or portfolio draft detail pages and no draft-only title, slug, Markdown, or JSON content. Existing files already stored under `public/` retain their current public-asset behavior; this feature neither moves nor publishes media.
 
