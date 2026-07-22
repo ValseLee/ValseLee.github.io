@@ -265,6 +265,22 @@ test("publishPortfolioProject updates by slug and stages only canonical JSON and
   ]);
 });
 
+test("publishPortfolioProject uses Webpack when node_modules points outside the worktree", async (t) => {
+  const root = createPortfolioRoot(t, { projects: [] });
+  const modules = fs.mkdtempSync(path.join(os.tmpdir(), "portfolio-node-modules-"));
+  t.after(() => fs.rmSync(modules, { recursive: true, force: true }));
+  fs.symlinkSync(modules, path.join(root, "node_modules"));
+  const calls = [];
+
+  const result = await publishPortfolioProject(portfolioProject(), root, new Date("2026-07-21"), async (command, args) => {
+    calls.push([command, args]);
+    return `$ ${command} ${args.join(" ")}`;
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(calls.find(([command]) => command === "npm"), ["npm", ["run", "build", "--", "--webpack"]]);
+});
+
 test("publishPortfolioProject commits only portfolio paths and rejects staged overlap", async (t) => {
   const root = createPortfolioRoot(t, { projects: [portfolioProject({ name: "Old" })] });
   fs.writeFileSync(path.join(root, "unrelated.txt"), "base\n");

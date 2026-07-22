@@ -212,6 +212,13 @@ export async function publishPortfolioProject(rawProject, root = process.cwd(), 
 
   const mediaPaths = [...new Set(project.media.map(({ src }) => path.join("public", src.slice(1))))];
   const stagedPaths = [relativeFilePath, ...mediaPaths];
+  const modulesPath = path.join(root, "node_modules");
+  const linkedModulesPath = fs.lstatSync(modulesPath, { throwIfNoEntry: false })?.isSymbolicLink()
+    ? path.relative(root, fs.realpathSync(modulesPath))
+    : "";
+  const buildArgs = linkedModulesPath === ".." || linkedModulesPath.startsWith(`..${path.sep}`)
+    ? ["run", "build", "--", "--webpack"]
+    : ["run", "build"];
   let committed = false;
 
   try {
@@ -224,7 +231,7 @@ export async function publishPortfolioProject(rawProject, root = process.cwd(), 
   try {
     replaceFileAtomically(canonicalFilePath, nextBytes);
     for (const [command, args] of [
-      ["npm", ["run", "build"]],
+      ["npm", buildArgs],
       ["git", ["add", "--", ...stagedPaths]],
       ["git", ["commit", "--only", "-m", commitMessage, "--", ...stagedPaths]],
       ["git", ["push"]],
