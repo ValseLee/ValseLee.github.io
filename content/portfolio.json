@@ -10,22 +10,29 @@
           "kind": "image",
           "src": "/portfolio/simulator-screenshot-iphone-17-pro-2026-07-15-at-15-13-17.png",
           "caption": "컨디션별 Routine을 한눈에 보여주는 Routine Pack 상세 화면",
-          "alt": "Night Ritual Routine 상세 화면에 좋음, 괜찮음, 보통, 나쁨, 방전 상태별 루틴 카드가 세로로 표시된 모습"
+          "alt": "Night Ritual Routine 상세 화면에 좋음, 괜찮음, 보통, 나쁨, 방전 상태별 루틴 카드가 세로로 표시된 모습",
+          "size": "small"
         },
         {
           "kind": "video",
           "src": "/portfolio/simulator-screen-recording-iphone-17-pro-2026-07-22-at-09-40-30.mp4",
-          "caption": "Routine Pack 상세 화면에서 컨디션별 루틴을 확인하는 흐름"
+          "caption": "Routine Pack 상세 화면에서 컨디션별 루틴을 확인하는 흐름",
+          "size": "small",
+          "posterSrc": "/portfolio/simulator-screen-recording-iphone-17-pro-2026-07-22-at-09-40-30-poster.jpg"
         },
         {
           "kind": "video",
           "src": "/portfolio/화면-기록-2026-07-22-오전-9-53-05.mp4",
-          "caption": "Routine 수행 시간을 빠르게 선택하는 입력 인터랙션"
+          "caption": "Routine 수행 시간을 빠르게 선택하는 입력 인터랙션",
+          "size": "small",
+          "posterSrc": "/portfolio/화면-기록-2026-07-22-오전-9-53-05-poster.jpg"
         },
         {
           "kind": "video",
           "src": "/portfolio/화면기록2.mp4",
-          "caption": "컨디션별 Routine을 설정하는 생성 흐름"
+          "caption": "컨디션별 Routine을 설정하는 생성 흐름",
+          "size": "small",
+          "posterSrc": "/portfolio/화면기록2-poster.jpg"
         }
       ]
     }
